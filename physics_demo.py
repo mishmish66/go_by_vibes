@@ -12,8 +12,6 @@ import matplotlib.pyplot as plt
 import flax
 from flax import linen as nn
 
-from nets import StateEncoder, Transition
-
 import timeit
 
 # Generate random key
@@ -28,34 +26,33 @@ bias_forces = jax.jit(bias_forces)
 mass_config = jnp.array([1.0, 0.25, 0.25, 0.04, 0.01, 0.01])
 shape_config = jnp.array([1.0, 0.25, 0.25])
 
-envs = 32
+target = jnp.array([0, 0, 0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
+kp = jnp.array([0, 0, 0, 10.0, 10.0, 10.0, 10.0], dtype=jnp.float32)
+kd = jnp.array([0, 0, 0, 0.1, 0.1, 0.1, 0.1], dtype=jnp.float32)
 
+jax.random.PRNGKey(0)
+envs = 32
 rng, key = jax.random.split(key)
 q = (
     jnp.array([0, 0, -0.0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
-    + jax.random.normal(rng, (envs, 7)) * 0.25
+    + jax.random.normal(rng, (envs, 7)) * 0.01
 )
 rng, key = jax.random.split(key)
 qd = (
     jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
-    + jax.random.normal(rng, (envs, 7)) * 0.1
+    + jax.random.normal(rng, (envs, 7)) * 0.001
 )
 
 dt = 0.02
-substep = 5
+substep = 10
 total_time = 5.0
-
-
-### Set up RL stuff
-state_encoder = StateEncoder()
-rng, key = jax.random.split(key)
-
-params = state_encoder.init(rng, q)
-z_state = state_encoder.apply(params, q)
-
 
 sim_dt = dt / substep
 vmap_physics_step = jax.vmap(physics_step, (0, 0, None, None, None, None))
+
+
+def control(q, qd):
+    return (q - target) * kp + qd * kd
 
 
 def scanf(carry, _):

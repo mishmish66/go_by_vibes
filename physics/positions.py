@@ -1,6 +1,6 @@
 import numpy as np
 from einops import einsum, rearrange
-from rotation import rotmat
+from physics.rotation import rotmat
 
 import jax
 from jax import numpy as jnp

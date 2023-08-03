@@ -2,23 +2,20 @@ import jax
 
 import jax.numpy as jnp
 
-from mass_matrix import mass_matrix
-from bias_forces import bias_forces
+from .gen.mass_matrix import mass_matrix
+from .gen.bias_forces import bias_forces
 
-from positions import make_positions
+from physics.positions import make_positions
 
-from contact_solver import iterative_solver
+from physics.contact_solver import iterative_solver
 
 import timeit
 
-from visualize import animate
+from physics.visualize import animate
 
 from einops import einops, einsum
 
 import matplotlib.pyplot as plt
-
-mass_config = jnp.array([1.0, 0.25, 0.25, 0.04, 0.01, 0.01])
-shape_config = jnp.array([1.0, 0.25, 0.25])
 
 
 def penetration(positions, position_grads=None):
@@ -77,7 +74,14 @@ def contact_tangent_grads(positions, position_grads):
     return jnp.sum(result_stack, axis=0)
 
 
-def physics_step(q, qd, control=None, dt=0.01):
+def physics_step(
+    q,
+    qd,
+    mass_config,
+    shape_config,
+    control=None,
+    dt=0.01,
+):
     positions = make_positions(q, shape_config)
     position_grads = jax.jacfwd(make_positions, 0)(q, shape_config)
 

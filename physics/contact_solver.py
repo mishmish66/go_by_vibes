@@ -1,6 +1,6 @@
-from mass_matrix import mass_matrix
+from .gen.mass_matrix import mass_matrix
 
-from foot_positions import lfoot_pos, rfoot_pos
+from physics.foot_positions import lfoot_pos, rfoot_pos
 
 from einops import einsum, reduce
 

@@ -3,13 +3,13 @@ from matplotlib.animation import FuncAnimation
 
 import numpy as np
 
-from rotation import rotmat
+from physics.rotation import rotmat
 
 from einops import einsum, rearrange
 
 import threading
 
-from positions import make_positions
+from physics.positions import make_positions
 
 
 def animate(qs, shape_config, dt=0.01, dpi=100):
