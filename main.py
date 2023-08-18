@@ -6,13 +6,17 @@ from physics.visualize import animate
 
 import jax
 import jax.numpy as jnp
+from clu import metrics
+import flax
+from flax import linen as nn
+from flax import struct
+import optax
+
 from einops import einops, einsum
 import matplotlib.pyplot as plt
 
-import flax
-from flax import linen as nn
-
-from nets import StateEncoder, Transition
+from embeds import EmbeddingLayer
+from nets import StateEncoder, ActionEncoder, TransitionModel, encoded_state_dim, encoded_action_dim
 
 import timeit
 
@@ -28,7 +32,7 @@ bias_forces = jax.jit(bias_forces)
 mass_config = jnp.array([1.0, 0.25, 0.25, 0.04, 0.01, 0.01])
 shape_config = jnp.array([1.0, 0.25, 0.25])
 
-envs = 32
+envs = 8192
 
 rng, key = jax.random.split(key)
 q = (
@@ -42,33 +46,32 @@ qd = (
 )
 
 dt = 0.02
-substep = 5
+substep = 2
 total_time = 5.0
 
 
 ### Set up RL stuff
+
+loops = 4096
+
+state_embedding_layer = EmbeddingLayer(256)
+action_embedding_layer = EmbeddingLayer(128)
+
 state_encoder = StateEncoder()
+action_encoder = ActionEncoder()
+transition_model = TransitionModel()
 rng, key = jax.random.split(key)
 
 params = state_encoder.init(rng, q)
 z_state = state_encoder.apply(params, q)
 
 
-sim_dt = dt / substep
-vmap_physics_step = jax.vmap(physics_step, (0, 0, None, None, None, None))
 
+qs = qs_sub[::substep, 0, :]
 
-def scanf(carry, _):
-    q, qd = carry
-    q, qd = vmap_physics_step(q, qd, mass_config, shape_config, control, sim_dt)
-    return (q, qd), q
+embeds = embedding_layer(qs)
 
-
-_, qs = jax.lax.scan(scanf, (q, qd), None, length=total_time / sim_dt)
-
-qs_step = qs[::substep, 0, :]
-
-ani = animate(qs_step, shape_config=shape_config, dt=dt)
+ani = animate(qs, shape_config=shape_config, dt=dt)
 
 plt.show()
 pass

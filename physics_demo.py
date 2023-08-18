@@ -1,7 +1,7 @@
 from physics.gen.mass_matrix import mass_matrix
 from physics.gen.bias_forces import bias_forces
 
-from physics.simulate import physics_step
+from physics.simulate import step
 from physics.visualize import animate
 
 import jax
@@ -31,7 +31,7 @@ kp = jnp.array([0, 0, 0, 10.0, 10.0, 10.0, 10.0], dtype=jnp.float32)
 kd = jnp.array([0, 0, 0, 0.1, 0.1, 0.1, 0.1], dtype=jnp.float32)
 
 jax.random.PRNGKey(0)
-envs = 32
+envs = 64
 rng, key = jax.random.split(key)
 q = (
     jnp.array([0, 0, -0.0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
@@ -48,7 +48,7 @@ substep = 10
 total_time = 5.0
 
 sim_dt = dt / substep
-vmap_physics_step = jax.vmap(physics_step, (0, 0, None, None, None, None))
+vmap_physics_step = jax.vmap(step, (0, 0, None, None, None, None))
 
 
 def control(q, qd):
@@ -63,9 +63,19 @@ def scanf(carry, _):
 
 _, qs = jax.lax.scan(scanf, (q, qd), None, length=total_time / sim_dt)
 
+import time
+
+start = time.time()
+_, qs = jax.lax.scan(scanf, (q, qd), None, length=total_time / sim_dt)
+end = time.time()
+print(end - start)
+
+
 qs_step = qs[::substep, 0, :]
 
 ani = animate(qs_step, shape_config=shape_config, dt=dt)
 
 plt.show()
+
+plt.waitforbuttonpress()
 pass

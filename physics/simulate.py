@@ -74,7 +74,7 @@ def contact_tangent_grads(positions, position_grads):
     return jnp.sum(result_stack, axis=0)
 
 
-def physics_step(
+def step(
     q,
     qd,
     mass_config,
@@ -100,7 +100,6 @@ def physics_step(
     )
     control_force_now = control(q, qd)
 
-    # jax.debug.print("joint_errors: {x}", x=target - q2)
     tau = bias_force_now + control_force_now
 
     qdd_pre_contact = jnp.linalg.solve(
