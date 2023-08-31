@@ -5,6 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Physics Demo",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/physics_demo.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "Python: main File",
             "type": "python",
             "request": "launch",

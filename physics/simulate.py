@@ -90,17 +90,28 @@ def step(
     contact_tangents_now = tangent_amount(positions)
     contact_normal_grads_now = contact_normal_grads(positions, position_grads)
     contact_tangent_grads_now = contact_tangent_grads(positions, position_grads)
+    
+    # Force the largest magnitude value in contact_normal_grads_now to be at least 0.01
+    # def normalize_grad(grad):
+    #     mags = jnp.abs(grad)
+    #     max_mag = jnp.max(mags)
+    #     factor = jnp.maximum(max_mag, 0.01) / max_mag
+        
+    #     return grad * factor
+    
+    # jax.vmap(normalize_grad)(contact_normal_grads_now)
 
     bias_force_now = bias_forces(q, qd, mass_config, shape_config, 9.81)
-    jax.lax.cond(
+    # add a joint damper to the bias force
+    bias_force_now = bias_force_now + jnp.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]) * qd * 0.1
+    # Set control to 0 if it is none
+    control = jax.lax.cond(
         control is None,
-        lambda q, qd: jnp.zeros_like(bias_force_now),
-        control,
-        *[q, qd],
+        lambda: jnp.zeros_like(bias_force_now),
+        lambda: control,
     )
-    control_force_now = control(q, qd)
 
-    tau = bias_force_now + control_force_now
+    tau = bias_force_now + control
 
     qdd_pre_contact = jnp.linalg.solve(
         mass_matrix(
@@ -127,6 +138,10 @@ def step(
         coeff_fric=0.7,
         dt=dt,
     )
+    
+    # Apply a non physical correction to push the contact points out of the ground
+    non_physical_correction = einsum(contact_normal_grads_now, penetration_now, "c d, c -> d") * dt * 2.5
+    q = q - non_physical_correction
 
     qdd_contact = jnp.linalg.solve(
         mass_matrix(

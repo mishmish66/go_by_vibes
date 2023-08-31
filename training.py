@@ -16,14 +16,8 @@ from einops import einsum, rearrange, reduce
 
 from physics import step
 from nets import encoded_state_dim, encoded_action_dim
-
-
-def sample(x, rng):
-    len = x.shape[-1] / 2
-    x_hat = x[..., :len]
-    x_var = x[..., len:]
-
-    return jax.random.normal(rng, x.shape) * jnp.sqrt(x_var) + x_hat
+from loss import loss_forward, loss_reconstruction, loss_smoothness, sample_gaussian
+from rollout import collect_rollout
 
 
 def collect_latent_rollout(
@@ -38,45 +32,25 @@ def collect_latent_rollout(
 ):
     """Collect a rollout using the latent transitions model and predefined actions."""
 
-    def scanf(z, action):
+    def scanf(carry, action):
+        z, key = carry
+        state_action = jnp.concatenate([z, action], axis=-1)
         net_out = transition_model_state.apply_fn(
-            {"params": transition_model_state}, z, action
+            {"params": transition_model_state.params}, state_action
         )
 
         if deterministic:
             z_hat = net_out[:encoded_state_dim]
             return z_hat, z_hat
 
-        z = sample(net_out, key)
+        rng, key = jax.random.split(key)
+        z = sample_gaussian(net_out, rng)
+        
+        return (z, key), z
 
-        return z, z
-
-    _, latents = jax.lax.scan(scanf, state_z_0, actions)
+    _, latents = jax.lax.scan(scanf, (state_z_0, key), actions)
 
     return latents
-
-
-def collect_physics_rollout(
-    q_0,
-    qd_0,
-    mass_config,
-    shape_config,
-    policy,
-    dt,
-    substep,
-    steps,
-):
-    """Collect a rollout of physics data."""
-
-    ### Initialize Physics
-    def scanf(carry, _):
-        q, qd = carry
-        q, qd = step(q, qd, mass_config, shape_config, policy, dt / substep)
-        return (q, qd), q
-
-    _, qs_sub = jax.lax.scan(scanf, (q_0, qd_0), None, length=steps * substep)
-
-    return qs_sub[::substep]
 
 
 @struct.dataclass
@@ -100,81 +74,221 @@ def create_train_state(module, dim, rng, learning_rate):
     )
 
 
-def gauss_kl(p, q):
-    dim = p.shape[-1] // 2
-    p_var, q_var = p[..., dim:], q[..., dim:]
-    p_mean, q_mean = p[..., :dim], q[..., :dim]
-
-    ratio = p_var / q_var
-    mahalanobis = jnp.square(q_mean - p_mean) / q_var
-
-    return 0.5 * (jnp.sum(ratio) + jnp.sum(mahalanobis) - dim + jnp.sum(jnp.log(ratio)))
-
-
-def mat_gauss_kl(gaussians):
-    return jax.vmap(
-        jax.vmap(gauss_kl, in_axes=(0, None)),
-        in_axis=(None, 0),
-    )(gaussians, gaussians)
-
-
-def loss_info_states(encoded_states):
+def train_step(
+    state_encoder_state,
+    action_encoder_state,
+    state_decoder_state,
+    action_decoder_state,
+    transition_model_state,
+    q_0,
+    qd_0,
+    mass_config,
+    shape_config,
+    policy,
+    dt,
+    substep,
+    rollout_steps,
+    key,
+    envs,
+):
+    """Train for a single step."""
     
-    encoded_states = rearrange(encoded_states, "r t d -> (r t) d")
-    
-    cross_corr = einsum(encoded_states, encoded_states,
-                        "i d, j d -> i j")
-    
-    labels = jnp.arange(encoded_states.shape[0])
-    loss = jnp.sum(optax.softmax_cross_entropy_with_integer_labels(
-        logits=jnp.log(cross_corr), labels=labels
-    ))
-    
-    return loss
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, envs)
 
-
-def loss_simulation(encoded_states, next_state_gaussians):
-    
-    next_state_gaussians = next_state_gaussians[..., :-1, :]
-    encoded_states = encoded_states[..., 1:, :]
-    
-    next_state_gaussians = rearrange(next_state_gaussians, "r t d -> (r t) d")
-    encoded_states = rearrange(encoded_states, "r t d -> (r t) d")
-    
-    def eval_gaussian(gaussian, point):
-        dim = gaussian.shape[-1] // 2
-        mean = gaussian[..., :dim]
-        variance = gaussian[..., dim:]
-        return multinorm_pdf(point, mean, jnp.diag(variance))
-        
-    probs = jax.vmap(eval_gaussian, in_axes=(0, 0, 0))(
-        next_state_gaussians, encoded_states
+    rollout_result = jax.vmap(collect_rollout, in_axes=((0, 0) + (None,) * 6 + (0,)))(
+        q_0,
+        qd_0,
+        mass_config,
+        shape_config,
+        policy,
+        dt,
+        substep,
+        rollout_steps,
+        rngs
     )
 
-    return -jnp.sum(probs)
+    rng, key = jax.random.split(key)
 
-def loss_consistency(encoded, recovered):
-    
+    def state_encoder_loss(state_encoder_params, key):
+        rng, key = jax.random.split(key)
+
+        forward_loss = loss_forward(
+            state_encoder_params,
+            action_encoder_state.params,
+            transition_model_state.params,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            rollout_result,
+            rng,
+        )
+
+        reconstruction_loss = loss_reconstruction(
+            state_encoder_params,
+            action_encoder_state.params,
+            state_decoder_state.params,
+            action_decoder_state.params,
+            state_encoder_state,
+            action_encoder_state,
+            state_decoder_state,
+            action_decoder_state,
+            rollout_result,
+            key,
+        )
+
+        smoothness_loss = loss_smoothness(
+            state_encoder_params,
+            action_encoder_state.params,
+            transition_model_state.params,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            rollout_result,
+            rng,
+        )
+
+        return forward_loss + reconstruction_loss + smoothness_loss
+
+    def action_encoder_loss(action_encoder_params, key):
+        rng, key = jax.random.split(key)
+
+        forward_loss = loss_forward(
+            state_encoder_state.params,
+            action_encoder_params,
+            transition_model_state.params,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            rollout_result,
+            rng,
+        )
+
+        reconstruction_loss = loss_reconstruction(
+            state_encoder_state.params,
+            action_encoder_params,
+            state_decoder_state.params,
+            action_decoder_state.params,
+            state_encoder_state,
+            action_encoder_state,
+            state_decoder_state,
+            action_decoder_state,
+            rollout_result,
+            key,
+        )
+
+        smoothness_loss = loss_smoothness(
+            state_encoder_state.params,
+            action_encoder_params,
+            transition_model_state.params,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            rollout_result,
+            rng,
+        )
+
+        return forward_loss + reconstruction_loss + smoothness_loss
+
+    def transition_model_loss(transition_model_params, key):
+        rng, key = jax.random.split(key)
+
+        forward_loss = loss_forward(
+            state_encoder_state.params,
+            action_encoder_state.params,
+            transition_model_params,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            rollout_result,
+            rng,
+        )
+
+        return forward_loss
+
+    def state_decoder_loss(state_decoder_params, key):
+        rng, key = jax.random.split(key)
+
+        reconstruction_loss = loss_reconstruction(
+            state_encoder_state.params,
+            action_encoder_state.params,
+            state_decoder_params,
+            action_decoder_state.params,
+            state_encoder_state,
+            action_encoder_state,
+            state_decoder_state,
+            action_decoder_state,
+            rollout_result,
+            key,
+        )
+
+        return reconstruction_loss
+
+    def action_decoder_loss(action_decoder_params, key):
+        rng, key = jax.random.split(key)
+
+        reconstruction_loss = loss_reconstruction(
+            state_encoder_state.params,
+            action_encoder_state.params,
+            state_decoder_state.params,
+            action_decoder_params,
+            state_encoder_state,
+            action_encoder_state,
+            state_decoder_state,
+            action_decoder_state,
+            rollout_result,
+            key,
+        )
+
+        return reconstruction_loss
+
+    action_encoder_grad_fn = jax.grad(action_encoder_loss)
+    state_encoder_grad_fn = jax.grad(state_encoder_loss)
+    transition_model_grad_fn = jax.grad(transition_model_loss)
+    state_decoder_grad_fn = jax.grad(state_decoder_loss)
+    action_decoder_grad_fn = jax.grad(action_decoder_loss)
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(key, 5)
+    rng_list = list(rngs)
+
+    state_encoder_grads = state_encoder_grad_fn(
+        state_encoder_state.params, rng_list.pop()
+    )
+    action_encoder_grads = action_encoder_grad_fn(
+        action_encoder_state.params, rng_list.pop()
+    )
+    transition_model_grads = transition_model_grad_fn(
+        transition_model_state.params, rng_list.pop()
+    )
+    state_decoder_grads = state_decoder_grad_fn(
+        state_decoder_state.params, rng_list.pop()
+    )
+    action_decoder_grads = action_decoder_grad_fn(
+        action_decoder_state.params, rng_list.pop()
+    )
+
+    state_encoder_state = state_encoder_state.apply_gradients(grads=state_encoder_grads)
+    action_encoder_state = action_encoder_state.apply_gradients(
+        grads=action_encoder_grads
+    )
+    transition_model_state = transition_model_state.apply_gradients(
+        grads=transition_model_grads
+    )
+    state_decoder_state = state_decoder_state.apply_gradients(grads=state_decoder_grads)
+    action_decoder_state = action_decoder_state.apply_gradients(
+        grads=action_decoder_grads
+    )
+
+    return (
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+    )
 
 
-@jax.jit
-def train_step(state, batch):
-    """Train for a single step."""
-
-    def loss_fn(params):
-        logits = state.apply_fn({"params": params}, batch["image"])
-        loss = optax.softmax_cross_entropy_with_integer_labels(
-            logits=logits, labels=batch["label"]
-        ).mean()
-        return loss
-
-    grad_fn = jax.grad(loss_fn)
-    grads = grad_fn(state.params)
-    state = state.apply_gradients(grads=grads)
-    return state
-
-
-@jax.jit
 def compute_metrics(*, state, batch):
     logits = state.apply_fn({"params": state.params}, batch["image"])
     loss = optax.softmax_cross_entropy_with_integer_labels(

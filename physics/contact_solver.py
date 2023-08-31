@@ -31,6 +31,9 @@ def iterative_solver(
     dt,
 ):
     joint_space_mass = mass_matrix(q, q_dot, mass_config, shape_config)
+
+    joint_space_mass = joint_space_mass + jnp.eye(jnp.shape(joint_space_mass)[0]) * 1e-5
+
     joint_space_mass_inv = jnp.linalg.pinv(joint_space_mass)
 
     contact_normal_masses = 1 / einsum(
@@ -63,7 +66,7 @@ def iterative_solver(
     ):
         return einsum(
             contact_tangent_grads,
-            q_dot,
+            q_dot_int,
             "C i, i -> C",
         )
 
@@ -83,6 +86,26 @@ def iterative_solver(
         contact_normal_speeds_int = contact_normal_speeds_func(qd_int)
         error_vec = contact_normal_speeds_int - post_contact_speed
         residual_vec = jnp.square(error_vec)
+
+        # Compute the friction residual
+        tangent_speeds = contact_tangent_speeds_func(qd_int)
+        tangent_forces = contact_tangent_grads @ F_c_joint_int
+        normal_forces = contact_normal_grads @ F_c_joint_int
+
+        max_tangent_force = jnp.abs(coeff_fric * normal_forces)
+        tangent_excess = jnp.abs(tangent_forces) - max_tangent_force
+        tangent_residuals = jnp.clip(tangent_excess, 0, None)
+
+        static_residual = jnp.square(tangent_speeds)
+        kinetic_residual = jnp.square(tangent_excess)
+        tangent_allowed_residuals = jnp.minimum(static_residual, kinetic_residual)
+        tangent_residuals = jnp.maximum(tangent_residuals, tangent_allowed_residuals)
+
+        # jax.debug.print("tangent_excess: {}", tangent_excess * active_contacts)
+        # jax.debug.print("static_residual: {}", static_residual * active_contacts)
+        # jax.debug.print("kinetic_residual: {}", kinetic_residual * active_contacts)
+
+        residual_vec = jnp.maximum(residual_vec, tangent_residuals)
 
         return residual_vec
 
@@ -137,7 +160,16 @@ def iterative_solver(
                 lambda: jnp.float32(0),
             )
 
-            delta_joint_f = contact_normal_grad * delta_contact_f
+            # normalize contact_normal_grad to have magnitude at most 1000
+            contact_normal_grad_norm = jnp.linalg.norm(contact_normal_grad)
+            scaling_factor = jnp.minimum(contact_normal_grad_norm, 1e+2)
+            normalized_contact_normal_grad = (
+                contact_normal_grad / contact_normal_grad_norm * scaling_factor
+            )
+            # joint_space_contact_normal = contact_normal_grad / jnp.linalg.norm(
+            #     contact_normal_grad
+            # )
+            delta_joint_f = normalized_contact_normal_grad * delta_contact_f * 1.0
 
             F_c_joint_int = F_c_joint_int + delta_joint_f
 
@@ -159,12 +191,13 @@ def iterative_solver(
             contact_tangent_grad = contact_tangent_grads[i]
             contact_normal_mass = contact_normal_masses[i]
             contact_tangent_mass = contact_tangent_masses[i]
-            normal_force = normal_forces[i]
 
             tangent_velocity_int = contact_tangent_grad.T @ q_dot_int
             speed_error = tangent_velocity_int
             # jax.debug.print("contact: {i} speed_error: {x}", i=i, x=speed_error)
             acceleration_needed = -speed_error / dt
+
+            # jax.debug.print("Speed error: {x}", x=speed_error)
 
             delta_contact_f = contact_tangent_mass * acceleration_needed
 
@@ -174,13 +207,43 @@ def iterative_solver(
                 lambda: jnp.float32(0),
             )
 
-            delta_contact_f = jnp.clip(
-                delta_contact_f,
-                -coeff_fric * normal_force,
-                coeff_fric * normal_force,
+            # Scale contact tangent grad to have magnitude at most 1000
+            contact_tangent_grad_norm = jnp.linalg.norm(contact_tangent_grad)
+            scaling_factor = jnp.minimum(contact_tangent_grad_norm, 1e+2)
+            normalized_contact_tangent_grad = (
+                contact_tangent_grad / contact_tangent_grad_norm * scaling_factor
+            )
+            joint_space_contact_tangent = (
+                normalized_contact_tangent_grad / jnp.linalg.norm(contact_tangent_grad)
+            )
+            delta_joint_f = contact_tangent_grad * delta_contact_f * 1.0
+            # jax.debug.print("delta_contact_f: {x}", x=delta_contact_f)
+
+            F_c_joint_int = F_c_joint_int + delta_joint_f
+
+            # Now do another update to maintain the friction cone constraint
+            normal_force = contact_normal_grad.T @ F_c_joint_int
+            tangent_force = contact_tangent_grad.T @ F_c_joint_int
+            max_force = jnp.sign(tangent_force) * jnp.abs(coeff_fric * normal_force)
+
+            delta_contact_f = jax.lax.cond(
+                jnp.abs(tangent_force) > jnp.abs(max_force),
+                lambda: (max_force - tangent_force),
+                lambda: jnp.float32(0),
             )
 
-            delta_joint_f = contact_tangent_grad * delta_contact_f
+            # jax.lax.cond(
+            #     jnp.logical_and(jnp.abs(tangent_force) > jnp.abs(max_force), contact_active != 0),
+            #     lambda: jax.debug.print("cone: {}", jnp.abs(tangent_force) > jnp.abs(max_force)),
+            #     lambda: None,
+            # )
+
+            delta_contact_f = jax.lax.cond(
+                contact_active != 0,
+                lambda: delta_contact_f,
+                lambda: jnp.float32(0),
+            )
+            delta_joint_f = normalized_contact_tangent_grad * delta_contact_f * 0.5
 
             F_c_joint_int = F_c_joint_int + delta_joint_f
 
@@ -192,7 +255,6 @@ def iterative_solver(
             indices,
         )
         final_force = post_tangent_force
-        # jax.debug.print("final_force: {x}", x=final_force)
         # Here put the friction loop
         return final_force, it + 1
 
@@ -202,6 +264,7 @@ def iterative_solver(
     #     lambda: jax.debug.print("max it reached"),
     #     lambda: None,
     # )
+    # jax.debug.print("it: {x}", x=it)
     solution_force = solution_force
     return solution_force
 
