@@ -24,7 +24,7 @@ mass_config = jnp.array([1.0, 0.25, 0.25, 0.04, 0.01, 0.01])
 shape_config = jnp.array([1.0, 0.25, 0.25])
 
 # target = jnp.array([0, 0, 0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
-target = jnp.array([0, 0, -0.0, -jnp.pi, -0.0, -jnp.pi, 0.0], dtype=jnp.float32)
+target = jnp.array([0, 0.0, 0.0, -jnp.pi, -0.0, -jnp.pi, 0.0], dtype=jnp.float32)
 kp = jnp.array([0, 0, 0, 10.0, 10.0, 10.0, 10.0], dtype=jnp.float32)
 kd = jnp.array([0, 0, 0, 0.1, 0.1, 0.1, 0.1], dtype=jnp.float32)
 

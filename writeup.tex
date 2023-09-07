@@ -1,0 +1,99 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images\
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsfonts}
+\newtheorem{definition}{Definition}
+
+\title{Go By Vibes}
+\author{Misha Lvovsky}
+\date{August 2023}
+
+\begin{document}
+
+\maketitle
+
+\section{Problem Statement}
+
+We want to create a smooth embedding space which is analogous to our joint space.
+Let's define that a neighborhood in our embedding space has a size of $1$ unit. This means that within $1$ unit all actions and states should be similar and should yield similar results. We can tie these vicinities together by saying that a certain vicinity should correspond with a certain amount of elapsed time. A certain action should be in the vicinity of another action if the resultant states they reach from a given source state are themselves in the same smaller vicinity.
+
+\section{Spaces}
+
+\begin{definition} [State Space] Let $\mathcal{S}$ signify the space of all possible states for the system.
+\end{definition}
+\begin{definition} [Action Space]
+    Let $\mathcal{A}$ signify the space of all possible actions the agent can make
+\end{definition}
+\begin{definition} [Embedding Space]
+    Let $\mathcal{Z}^s$ and $\mathcal{Z}^a$ signify the space of all possible embeddings of states and actions respectively.
+\end{definition}
+
+\section{Loss Functions}
+
+% $\mathcal{L}_\text{info}=-\sum\limits_{i} \sum\limits_{j} D_{KL}\left(p_\theta(z^s_i|s_{i}) \| p_\theta(z^s_j|s_{j})\right)-\sum\limits_{i} \sum\limits_{j} D_{KL}\left(p_\theta(z^a_i|a_{i}) \| p_\theta(z^a_j|a_{j})\right)$\\
+$\mathcal{L}_\text{forward} = -p_\psi({z^s}'|z^s,z^a)$ \\
+$\mathcal{L}_\text{reconstruction} = -p_\theta(s|z^s) - p_\theta(a|z^a), z^s = f^s_\theta(a), z^a = f^a_\theta(a)$ \\
+$\mathcal{L_\text{smooth}}= -\sum\limits_i^N p({z^s_i}'|\mu={z^s_\mu}',\sigma^2=\mathbf{I}), {z^s_i}' \sim p({z^s_i}'|z^s_i,z^a_i)$ \\
+$\mathcal{L_\text{state regularization}}=-\sum\limits_i\max(\|{z_i^s}'-z_i^s\|-\lambda_\text{state}, 0)^2$ \\
+$\mathcal{L}_\text{action regularization}=-\sum\limits_{i,j} \max(\|z'^s_{i,j}-z^s_i\| - \lambda_\text{act}, 0)^2, z_{i,j}'^s\sim p(z'^s_{i,j}|z^s_i,z^a_{i,j}),z^a_{i,j}\sim p(z^a_{i,j}|\mu=z^a_i, \sigma^2=\lambda_\text{act}^2)$
+
+\section{Network Losses}
+
+$\mathcal{L}_\text{action encoder}=\mathcal{L}_\text{forward} + \mathcal{L}_\text{smooth}+\mathcal{L}_\text{reconstruction}$
+
+% Formalize more what you're trying to achieve here, what does SMOOTHNESS mean
+
+% Describe what expirements you're running in the overleaf
+
+\section{Controller}
+
+\begin{definition}[Trajectory Generator]
+    $f: \mathcal{X} \rightarrow \mathcal{S}^H$
+\end{definition}
+\begin{definition}[Latent Dynamics]
+    $d: \mathcal{Z}^s \times \left(\mathcal{Z}^a\right)^H \rightarrow (\mathcal{Z}^s)^H$
+\end{definition}
+\begin{definition}[Cost Function]
+    $j: (\mathcal{S} \times \mathcal{A})^H \rightarrow \mathbb{R}$
+\end{definition}
+\begin{definition}[Control Plan]
+    A sequence $\mathbf{z^a} = \{z^a_0, z^a_1, ..., z^a_{H-1}\}$ where each $z^a_i \in \mathcal{Z}^a$ represents an action taken at time step $i$
+\end{definition}
+\begin{definition}[Control Cost]
+    $c(\mathbf{z}_{0:H-1}^s, \mathbf{z}_{0:H-1}^{s*}) = \sum\limits_{i=0}^{H-1} \| z^s_i\ - z^{s*}_i \|_2^2$
+\end{definition}
+
+\begin{algorithm}[H]
+    \caption{Latent Trajectory Optimization}
+    \label{alg:lto}
+    \begin{algorithmic}[1]
+        \Require Initial state \(s_0\), initial guess for actions \(\mathbf{z}_{1:H-1}^a\), initial guess for input \(\mathcal{X}\), cost function \(c(\cdot)\), learning rate \(\eta\)
+        \Ensure Optimal control sequence \(\mathbf{z}_{1:H-1}^{\text{opt}}\)
+
+        \Function{LatentTrajectoryOptimization}{$s_0$, $\mathbf{z}_{1:H-1}^a$, $c(\cdot)$, $\mathcal{X}$, $\eta$}
+        % Algorithm steps
+        \Repeat
+        \State Generate Target States: \(\mathbf{z}_{1:H}^{s*} = f(\mathcal{X})\)
+        \State Do Latent Rollout: \(\mathbf{z}_{0:H-1}^s = d(s_0, \mathbf{z}_{0:H-1}^a)\)
+        \State Evaluate Control Cost: \(c = c(\mathbf{z}_{0:H-1}^s, \mathbf{z}_{0:H-1}^{s*})\)
+        \State Decode States and Actions: \(\mathbf{s}_{0:H-1} = g(\mathbf{z}_{0:H-1}^s), \mathbf{a}_{0:H-1} = g(\mathbf{z}_{0:H-1}^a)\)
+        \State Evaluate Cost Function: \(j = j(\mathbf{z}^s_{0:H-1}, )\)
+        \State Compute Gradients:
+        \State \hspace{\algorithmicindent} Reached States w.r.t. Target States: \(\nabla_{{\mathbf{z}^s}^*}\mathbf{z}^s = \frac{\partial d}{\partial{\mathbf{z}^s}^*}\)
+        \State \hspace{\algorithmicindent} Control Cost w.r.t. Reached States \(\nabla_{\mathbf{z}^s} c = \frac{\partial c}{\partial\mathbf{z}^s}\)
+        \State \hspace{\algorithmicindent} Control Cost w.r.t. Actions \(\nabla_{\mathbf{z}^a} c = \frac{\partial c}{\partial \mathbf{z}^a}\)
+        \State \hspace{\algorithmicindent} Cost Function w.r.t. Reached States \(\nabla_{\mathbf{z}^s} j = \frac{\partial j}{\partial \mathbf{z}^s}\)
+        \State Propagate gradients through trajectory generator: \(\nabla_{\mathcal{X}} = (\nabla_{\mathbf{z}^s} c + \nabla_{\mathbf{z}^s}j ) \left( \nabla_{{\mathbf{z}^s}^*}{\mathbf{z}^s} \right) \left(\frac{\partial f}{\partial \mathcal{X}} \right)\)
+        \State Adjust latent actions: \(\mathbf{z}_{1:H-1}^a = \mathbf{z}_{1:H-1}^a - \eta \nabla_{\mathbf{z}^a} c\)
+        \State Adjust input to trajectory generator: \(\mathcal{X} = \mathcal{X} - \eta \nabla_{\mathcal{X}}\)
+        \Until{Converged}
+
+        \State \Return \(\mathbf{z}_{1:H-1}^{\text{opt}} = \mathbf{z}_{1:H-1}^a\)
+        \EndFunction
+    \end{algorithmic}
+\end{algorithm}
+
+\end{document}

@@ -16,7 +16,14 @@ from einops import einsum, rearrange, reduce
 
 from physics import step
 from nets import encoded_state_dim, encoded_action_dim
-from loss import loss_forward, loss_reconstruction, loss_smoothness, sample_gaussian
+from loss import (
+    loss_forward,
+    loss_reconstruction,
+    loss_smoothness,
+    loss_state_regularization,
+    loss_action_regularization,
+    sample_gaussian,
+)
 from rollout import collect_rollout
 
 
@@ -45,7 +52,7 @@ def collect_latent_rollout(
 
         rng, key = jax.random.split(key)
         z = sample_gaussian(net_out, rng)
-        
+
         return (z, key), z
 
     _, latents = jax.lax.scan(scanf, (state_z_0, key), actions)
@@ -74,179 +81,307 @@ def create_train_state(module, dim, rng, learning_rate):
     )
 
 
+def state_encoder_loss(
+    state_encoder_params,
+    state_encoder_state,
+    action_encoder_state,
+    transition_model_state,
+    state_decoder_state,
+    action_decoder_state,
+    rollout_result,
+    key,
+    loss_weights=[1.0, 1.0, 1.0, 1.0],  # [1e6, 1.0, 1e3, 1e-6],
+):
+    rng, key = jax.random.split(key)
+
+    forward_loss = loss_weights[0] * loss_forward(
+        state_encoder_params,
+        action_encoder_state.params,
+        transition_model_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        rollout_result,
+        rng,
+    )
+
+    reconstruction_loss = loss_weights[1] * loss_reconstruction(
+        state_encoder_params,
+        action_encoder_state.params,
+        state_decoder_state.params,
+        action_decoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+
+    smoothness_loss = loss_weights[2] * loss_smoothness(
+        state_encoder_params,
+        action_encoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        rollout_result,
+        rng,
+    )
+
+    regularization_loss = loss_weights[3] * loss_state_regularization(
+        state_encoder_params,
+        state_encoder_state,
+        action_encoder_state,
+        rollout_result,
+        rng,
+    )
+
+    jax.debug.print(
+        "State Encoder Losses:\n"
+        + "\tForward: {}\n"
+        + "\tReconstruction: {}\n"
+        + "\tSmoothness: {}\n"
+        + "\tRegularization: {}",
+        forward_loss,
+        reconstruction_loss,
+        smoothness_loss,
+        regularization_loss,
+    )
+
+    return forward_loss + reconstruction_loss + smoothness_loss + regularization_loss
+
+
+def action_encoder_loss(
+    action_encoder_params,
+    state_encoder_state,
+    action_encoder_state,
+    transition_model_state,
+    state_decoder_state,
+    action_decoder_state,
+    rollout_result,
+    key,
+):
+    rng, key = jax.random.split(key)
+
+    forward_loss = loss_forward(
+        state_encoder_state.params,
+        action_encoder_params,
+        transition_model_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        rollout_result,
+        rng,
+    )
+
+    reconstruction_loss = loss_reconstruction(
+        state_encoder_state.params,
+        action_encoder_params,
+        state_decoder_state.params,
+        action_decoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+
+    smoothness_loss = loss_smoothness(
+        state_encoder_state.params,
+        action_encoder_params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        rollout_result,
+        rng,
+    )
+
+    regularization_loss = loss_action_regularization(
+        action_encoder_params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        rollout_result,
+        0.1,
+        rng,
+    )
+
+    jax.debug.print(
+        "Action Encoder Losses:\n"
+        + "\tForward: {}\n"
+        + "\tReconstruction: {}\n"
+        + "\tSmoothness: {}\n"
+        + "\tRegularization: {}",
+        forward_loss,
+        reconstruction_loss,
+        smoothness_loss,
+        regularization_loss,
+    )
+
+    return forward_loss + reconstruction_loss + smoothness_loss + regularization_loss
+
+
+def transition_model_loss(
+    transition_model_params,
+    state_encoder_state,
+    action_encoder_state,
+    transition_model_state,
+    state_decoder_state,
+    action_decoder_state,
+    rollout_result,
+    key,
+):
+    rng, key = jax.random.split(key)
+
+    forward_loss = loss_forward(
+        state_encoder_state.params,
+        action_encoder_state.params,
+        transition_model_params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        rollout_result,
+        rng,
+    )
+
+    return forward_loss
+
+
+def state_decoder_loss(
+    state_decoder_params,
+    state_encoder_state,
+    action_encoder_state,
+    transition_model_state,
+    state_decoder_state,
+    action_decoder_state,
+    rollout_result,
+    key,
+):
+    rng, key = jax.random.split(key)
+
+    reconstruction_loss = loss_reconstruction(
+        state_encoder_state.params,
+        action_encoder_state.params,
+        state_decoder_params,
+        action_decoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+
+    return reconstruction_loss
+
+
+def action_decoder_loss(
+    action_decoder_params,
+    state_encoder_state,
+    action_encoder_state,
+    transition_model_state,
+    state_decoder_state,
+    action_decoder_state,
+    rollout_result,
+    key,
+):
+    rng, key = jax.random.split(key)
+
+    reconstruction_loss = loss_reconstruction(
+        state_encoder_state.params,
+        action_encoder_state.params,
+        state_decoder_state.params,
+        action_decoder_params,
+        state_encoder_state,
+        action_encoder_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+
+    return reconstruction_loss
+
+
 def train_step(
     state_encoder_state,
     action_encoder_state,
     state_decoder_state,
     action_decoder_state,
     transition_model_state,
-    q_0,
-    qd_0,
-    mass_config,
-    shape_config,
-    policy,
-    dt,
-    substep,
-    rollout_steps,
+    rollout_result,
     key,
-    envs,
 ):
     """Train for a single step."""
-    
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, envs)
-
-    rollout_result = jax.vmap(collect_rollout, in_axes=((0, 0) + (None,) * 6 + (0,)))(
-        q_0,
-        qd_0,
-        mass_config,
-        shape_config,
-        policy,
-        dt,
-        substep,
-        rollout_steps,
-        rngs
-    )
 
     rng, key = jax.random.split(key)
 
-    def state_encoder_loss(state_encoder_params, key):
-        rng, key = jax.random.split(key)
-
-        forward_loss = loss_forward(
+    def state_encoder_loss_for_grad(state_encoder_params, key):
+        return state_encoder_loss(
             state_encoder_params,
-            action_encoder_state.params,
-            transition_model_state.params,
             state_encoder_state,
             action_encoder_state,
             transition_model_state,
-            rollout_result,
-            rng,
-        )
-
-        reconstruction_loss = loss_reconstruction(
-            state_encoder_params,
-            action_encoder_state.params,
-            state_decoder_state.params,
-            action_decoder_state.params,
-            state_encoder_state,
-            action_encoder_state,
             state_decoder_state,
             action_decoder_state,
             rollout_result,
             key,
         )
 
-        smoothness_loss = loss_smoothness(
-            state_encoder_params,
-            action_encoder_state.params,
-            transition_model_state.params,
+    def action_encoder_loss_for_grad(action_encoder_params, key):
+        return action_encoder_loss(
+            action_encoder_params,
             state_encoder_state,
             action_encoder_state,
             transition_model_state,
-            rollout_result,
-            rng,
-        )
-
-        return forward_loss + reconstruction_loss + smoothness_loss
-
-    def action_encoder_loss(action_encoder_params, key):
-        rng, key = jax.random.split(key)
-
-        forward_loss = loss_forward(
-            state_encoder_state.params,
-            action_encoder_params,
-            transition_model_state.params,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            rollout_result,
-            rng,
-        )
-
-        reconstruction_loss = loss_reconstruction(
-            state_encoder_state.params,
-            action_encoder_params,
-            state_decoder_state.params,
-            action_decoder_state.params,
-            state_encoder_state,
-            action_encoder_state,
             state_decoder_state,
             action_decoder_state,
             rollout_result,
             key,
         )
 
-        smoothness_loss = loss_smoothness(
-            state_encoder_state.params,
-            action_encoder_params,
-            transition_model_state.params,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            rollout_result,
-            rng,
-        )
-
-        return forward_loss + reconstruction_loss + smoothness_loss
-
-    def transition_model_loss(transition_model_params, key):
-        rng, key = jax.random.split(key)
-
-        forward_loss = loss_forward(
-            state_encoder_state.params,
-            action_encoder_state.params,
+    def transition_model_loss_for_grad(transition_model_params, key):
+        return transition_model_loss(
             transition_model_params,
             state_encoder_state,
             action_encoder_state,
             transition_model_state,
-            rollout_result,
-            rng,
-        )
-
-        return forward_loss
-
-    def state_decoder_loss(state_decoder_params, key):
-        rng, key = jax.random.split(key)
-
-        reconstruction_loss = loss_reconstruction(
-            state_encoder_state.params,
-            action_encoder_state.params,
-            state_decoder_params,
-            action_decoder_state.params,
-            state_encoder_state,
-            action_encoder_state,
             state_decoder_state,
             action_decoder_state,
             rollout_result,
             key,
         )
 
-        return reconstruction_loss
+    def state_decoder_loss_for_grad(state_decoder_params, key):
+        return state_decoder_loss(
+            state_decoder_params,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+            rollout_result,
+            key,
+        )
 
-    def action_decoder_loss(action_decoder_params, key):
-        rng, key = jax.random.split(key)
-
-        reconstruction_loss = loss_reconstruction(
-            state_encoder_state.params,
-            action_encoder_state.params,
-            state_decoder_state.params,
+    def action_decoder_loss_for_grad(action_decoder_params, key):
+        return action_decoder_loss(
             action_decoder_params,
             state_encoder_state,
             action_encoder_state,
+            transition_model_state,
             state_decoder_state,
             action_decoder_state,
             rollout_result,
             key,
         )
 
-        return reconstruction_loss
-
-    action_encoder_grad_fn = jax.grad(action_encoder_loss)
-    state_encoder_grad_fn = jax.grad(state_encoder_loss)
-    transition_model_grad_fn = jax.grad(transition_model_loss)
-    state_decoder_grad_fn = jax.grad(state_decoder_loss)
-    action_decoder_grad_fn = jax.grad(action_decoder_loss)
+    action_encoder_grad_fn = jax.grad(action_encoder_loss_for_grad)
+    state_encoder_grad_fn = jax.grad(state_encoder_loss_for_grad)
+    transition_model_grad_fn = jax.grad(transition_model_loss_for_grad)
+    state_decoder_grad_fn = jax.grad(state_decoder_loss_for_grad)
+    action_decoder_grad_fn = jax.grad(action_decoder_loss_for_grad)
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(key, 5)
@@ -267,6 +402,23 @@ def train_step(
     action_decoder_grads = action_decoder_grad_fn(
         action_decoder_state.params, rng_list.pop()
     )
+
+    def process_grad(grad):
+        # Clip norm of grads to be 1.0
+        norm = jnp.linalg.norm(grad)
+        ratio = jnp.minimum(1.0, 1.0 / norm)
+        grad = grad * ratio
+        
+        # nan to zero
+        grad = jnp.nan_to_num(grad)
+        
+        return grad
+
+    state_encoder_grads = jax.tree_map(process_grad, state_encoder_grads)
+    action_encoder_grads = jax.tree_map(process_grad, action_encoder_grads)
+    transition_model_grads = jax.tree_map(process_grad, transition_model_grads)
+    state_decoder_grads = jax.tree_map(process_grad, state_decoder_grads)
+    action_decoder_grads = jax.tree_map(process_grad, action_decoder_grads)
 
     state_encoder_state = state_encoder_state.apply_gradients(grads=state_encoder_grads)
     action_encoder_state = action_encoder_state.apply_gradients(
@@ -289,14 +441,114 @@ def train_step(
     )
 
 
-def compute_metrics(*, state, batch):
-    logits = state.apply_fn({"params": state.params}, batch["image"])
-    loss = optax.softmax_cross_entropy_with_integer_labels(
-        logits=logits, labels=batch["label"]
-    ).mean()
-    metric_updates = state.metrics.single_from_model_output(
-        logits=logits, labels=batch["label"], loss=loss
+def compute_metrics(
+    state_encoder_state,
+    action_encoder_state,
+    state_decoder_state,
+    action_decoder_state,
+    transition_model_state,
+    rollout_result,
+    key,
+):
+    state_encoder_loss_val = state_encoder_loss(
+        state_encoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
     )
-    metrics = state.metrics.merge(metric_updates)
-    state = state.replace(metrics=metrics)
-    return state
+    action_encoder_loss_val = action_encoder_loss(
+        action_encoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+    transition_model_loss_val = transition_model_loss(
+        transition_model_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+    state_decoder_loss_val = state_decoder_loss(
+        state_decoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+    action_decoder_loss_val = action_decoder_loss(
+        action_decoder_state.params,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+        rollout_result,
+        key,
+    )
+
+    # metric_updates = state_encoder_state.metrics.single_from_model_output(
+    #     loss=state_encoder_loss_val
+    # )
+    # metrics = state_encoder_state.metrics.merge(metric_updates)
+    # state_encoder_state = state_encoder_state.replace(metrics=metrics)
+
+    # metric_updates = action_encoder_state.metrics.single_from_model_output(
+    #     loss=action_encoder_loss_val
+    # )
+    # metrics = action_encoder_state.metrics.merge(metric_updates)
+    # action_encoder_state = action_encoder_state.replace(metrics=metrics)
+
+    # metric_updates = transition_model_state.metrics.single_from_model_output(
+    #     loss=transition_model_loss_val
+    # )
+    # metrics = transition_model_state.metrics.merge(metric_updates)
+    # transition_model_state = transition_model_state.replace(metrics=metrics)
+
+    # metric_updates = state_decoder_state.metrics.single_from_model_output(
+    #     loss=state_decoder_loss_val
+    # )
+    # metrics = state_decoder_state.metrics.merge(metric_updates)
+    # state_decoder_state = state_decoder_state.replace(metrics=metrics)
+
+    # metric_updates = action_decoder_state.metrics.single_from_model_output(
+    #     loss=action_decoder_loss_val
+    # )
+    # metrics = action_decoder_state.metrics.merge(metric_updates)
+    # action_decoder_state = action_decoder_state.replace(metrics=metrics)
+
+    # jax.debug.print(
+    #     "Losses:\n"
+    #     + "\tState Encoder: {}\n"
+    #     + "\tAction Encoder: {}\n"
+    #     + "\tTransition Model: {}\n"
+    #     + "\tState Decoder: {}\n"
+    #     + "\tAction Decoder: {}",
+    #     state_encoder_loss_val,
+    #     action_encoder_loss_val,
+    #     transition_model_loss_val,
+    #     state_decoder_loss_val,
+    #     action_decoder_loss_val,
+    # )
+
+    return (
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+    )

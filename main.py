@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 from embeds import EmbeddingLayer
 from rollout import collect_rollout
-from training import create_train_state, train_step
+from training import create_train_state, train_step, compute_metrics
 from nets import (
     StateEncoder,
     ActionEncoder,
@@ -63,8 +63,6 @@ total_time = 5.0
 
 ### Set up RL stuff
 
-loops = 4096
-
 state_embedding_layer = EmbeddingLayer(256)
 action_embedding_layer = EmbeddingLayer(128)
 
@@ -83,7 +81,7 @@ state_decoder = StateDecoder()
 action_decoder = ActionDecoder()
 
 rng, key = jax.random.split(key)
-state_encoder_state = create_train_state(state_encoder, 14, rng, learning_rate=0.001)
+state_encoder_state = create_train_state(state_encoder, 14, rng, learning_rate=0.01)
 
 rng, key = jax.random.split(key)
 action_encoder_state = create_train_state(action_encoder, 4, rng, learning_rate=0.001)
@@ -95,7 +93,7 @@ transition_model_state = create_train_state(
 
 rng, key = jax.random.split(key)
 state_decoder_state = create_train_state(
-    state_decoder, encoded_state_dim, rng, learning_rate=0.001
+    state_decoder, encoded_state_dim, rng, learning_rate=0.01
 )
 
 rng, key = jax.random.split(key)
@@ -135,23 +133,113 @@ rngs = jax.random.split(rng, start_q.shape[:-1])
 
 rollout_result = None
 
-train_step(
-    state_encoder_state,
-    action_encoder_state,
-    state_decoder_state,
-    action_decoder_state,
-    transition_model_state,
-    start_q,
-    qd,
-    mass_config,
-    shape_config,
-    policy,
-    dt,
-    substep,
-    int(total_time / dt),
-    key,
-    envs
-)
+rollouts = 1024
+trajectories_per_rollout = 1024
+epochs = 1024
+minibatch = 2
+
+for rollout in range(rollouts):
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, envs)
+
+    rollout_result = jax.vmap(collect_rollout, in_axes=((0, 0) + (None,) * 6 + (0,)))(
+        start_q,
+        qd,
+        mass_config,
+        shape_config,
+        policy,
+        dt,
+        substep,
+        int(total_time / dt),
+        rngs,
+    )
+
+    def do_epoch(
+        carry_pack,
+        key,
+    ):
+        (
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+            epoch,
+        ) = carry_pack
+
+        jax.debug.print("Epoch: {}", epoch)
+
+        # shuffle the data
+        rng, key = jax.random.split(key)
+        # Make a shuffled list of indices
+        indices = jax.random.permutation(rng, rollout_result[0].shape[0])
+        states = rollout_result[0][indices]
+        actions = rollout_result[1][indices]
+
+        start_i = 0
+        while (start_i + minibatch) < states.shape[0]:
+            end_i = start_i + minibatch
+
+            rng, key = jax.random.split(key)
+
+            (
+                state_encoder_state,
+                action_encoder_state,
+                transition_model_state,
+                state_decoder_state,
+                action_decoder_state,
+            ) = train_step(
+                state_encoder_state,
+                action_encoder_state,
+                state_decoder_state,
+                action_decoder_state,
+                transition_model_state,
+                (states[start_i:end_i], actions[start_i:end_i]),
+                rng,
+            )
+
+            compute_metrics(
+                state_encoder_state,
+                action_encoder_state,
+                state_decoder_state,
+                action_decoder_state,
+                transition_model_state,
+                (states[start_i:end_i], actions[start_i:end_i]),
+                rng,
+            )
+
+            start_i += minibatch
+
+        return (
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+            epoch + 1,
+        ), None
+
+    rng, key = jax.random.split(key)
+    scan_rngs = jax.random.split(rng, epochs)
+
+    (
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        state_decoder_state,
+        action_decoder_state,
+    ), _ = jax.lax.scan(
+        do_epoch,
+        (
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+            0,
+        ),
+        scan_rngs,
+    )
 
 # jit_collect = jax.jit(collect_rollout, static_argnames=("substep", "steps"))
 # rollout_result = jax.vmap(jit_collect, in_axes=((0, 0) + (None,) * 6 + (0,)))(
