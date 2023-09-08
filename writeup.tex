@@ -34,11 +34,28 @@ Let's define that a neighborhood in our embedding space has a size of $1$ unit. 
 \section{Loss Functions}
 
 % $\mathcal{L}_\text{info}=-\sum\limits_{i} \sum\limits_{j} D_{KL}\left(p_\theta(z^s_i|s_{i}) \| p_\theta(z^s_j|s_{j})\right)-\sum\limits_{i} \sum\limits_{j} D_{KL}\left(p_\theta(z^a_i|a_{i}) \| p_\theta(z^a_j|a_{j})\right)$\\
-$\mathcal{L}_\text{forward} = -p_\psi({z^s}'|z^s,z^a)$ \\
-$\mathcal{L}_\text{reconstruction} = -p_\theta(s|z^s) - p_\theta(a|z^a), z^s = f^s_\theta(a), z^a = f^a_\theta(a)$ \\
-$\mathcal{L_\text{smooth}}= -\sum\limits_i^N p({z^s_i}'|\mu={z^s_\mu}',\sigma^2=\mathbf{I}), {z^s_i}' \sim p({z^s_i}'|z^s_i,z^a_i)$ \\
-$\mathcal{L_\text{state regularization}}=-\sum\limits_i\max(\|{z_i^s}'-z_i^s\|-\lambda_\text{state}, 0)^2$ \\
-$\mathcal{L}_\text{action regularization}=-\sum\limits_{i,j} \max(\|z'^s_{i,j}-z^s_i\| - \lambda_\text{act}, 0)^2, z_{i,j}'^s\sim p(z'^s_{i,j}|z^s_i,z^a_{i,j}),z^a_{i,j}\sim p(z^a_{i,j}|\mu=z^a_i, \sigma^2=\lambda_\text{act}^2)$
+The first loss functions simply encourages the latent states and actions to be related to the actual states and actions.
+The log avoids the gradient vanishing, and the sigmoid prevents it from exploding.
+$$\mathcal{L}_\text{state reconstruction} = -\text{sigmoid}(\log(p_\theta(s|z^s))), z^s \sim p_\theta(z^s | s)$$
+$$\mathcal{L}_\text{action reconstruction} = -\text{sigmoid}(\log(p_\theta(a|z^a))), z^a \sim p_\theta(z^a | a)$$
+The next loss function trains a latent dynamics model to propogate the dynamics in the latent space.
+Additionally when applied to the state and action encoders this loss function encourages the states and actions to encode enough information about the state and action to predict the next state.
+$$\mathcal{L}_{\text{forward}} = D_{KL}\left( p_\psi\left({z^s}'\middle|z^s,z^a\right) \parallel p_\theta\left({z^s}'\middle| s\right) \right)$$ \\
+Next we create a loss function which encourages the states and actions in latent space to be smooth with respect to the transition function.
+This means that small perturbations in the latent source state and action input to the forward model should result in proportionally small changes to the resultant precticted next state.
+$$\mathcal{L_\text{smooth}}= -\sum\limits_i^N p({z^s_i}'|\mu={z^s_\mu}',\sigma^2=\mathbf{I}), {z^s_i}' \sim p({z^s_i}'|z^s_i,z^a_i)$$
+Additionally we want the gradient descent in the space of states and actions to achieve desired next states to be smooth.
+In order to encourage the space that has this property we will push nearby states and actions towards having similar jacobians through the latent forward model.
+The way we will do this is by sampling \(N\) latent state action pairs in the neighborhood of a source latent state action \(z^{sa}_\mu\) and stacking them into a vector \(\mathbf{z}^{sa}_{0:N-1}\).
+We will now take this vector and feed it through the latent forward model to get the predicted next latent states \(\mathbf{z}^{s'}_{0:N-1}\).
+We will now take the jacobians of each latent state in \(\mathbf{z}^{s'}_{0:N-1}\) w.r.t. the latent state actions and stack them into the tensors \(\mathbf{j}^{\frac{z^{s'}}{z^{sa}}}_{0:N-1}/\)
+We will now make an operation which is analogous taking the standard deviation of the jacobian matrices in the stack.
+First we find the mean jacobian \(j^{\frac{z^{s'}}{z^{sa}}}_\mu = \frac{1}{N}\sum\limits_{i=0}^{N-1} \mathbf{j}^{\frac{z^{s'}}{z^{sa}}}_{i}\).
+Now we can find the standard deviation of the jacobian matrices by taking the norm of the difference between each jacobian matrix and the mean jacobian matrix.
+$$\mathcal{L_\text{gradients smooth}}= \sum\limits_i = \|j^{\frac{z^{s'}}{z^{sa}}}_\mu - j^{\frac{z^{s'}}{z^{sa}}}_i\|_F$$
+
+% $$\mathcal{L_\text{state regularization}}=-\sum\limits_i\max(\|{z_i^s}'-z_i^s\|-\lambda_\text{state}, 0)^2$$
+% $\mathcal{L}_\text{action regularization}=-\sum\limits_{i,j} \max(\|z'^s_{i,j}-z^s_i\| - \lambda_\text{act}, 0)^2, z_{i,j}'^s\sim p(z'^s_{i,j}|z^s_i,z^a_{i,j}),z^a_{i,j}\sim p(z^a_{i,j}|\mu=z^a_i, \sigma^2=\lambda_\text{act}^2)$
 
 \section{Network Losses}
 
