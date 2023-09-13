@@ -69,6 +69,13 @@ $$\mathcal{L_\text{gradients smooth}}= \sum\limits_i = \|J^{\frac{z^{s'}}{z^{sa}
 % $$\mathcal{L_\text{state regularization}}=-\sum\limits_i\max(\|{z_i^s}'-z_i^s\|-\lambda_\text{state}, 0)^2$$
 % $\mathcal{L}_\text{action regularization}=-\sum\limits_{i,j} \max(\|z'^s_{i,j}-z^s_i\| - \lambda_\text{act}, 0)^2, z_{i,j}'^s\sim p(z'^s_{i,j}|z^s_i,z^a_{i,j}),z^a_{i,j}\sim p(z^a_{i,j}|\mu=z^a_i, \sigma^2=\lambda_\text{act}^2)$
 
+\section{Interesting Questions}
+
+\begin{itemize}
+    \item What happens if we use a very simple latent dynamics model? If this works then the encoder has to learn an encoding which knows about the dynamics of the system
+    \item What is different about evaluating the loss function on the generated trajectory vs. on the predicted trajectory? Will the controller game the system by making a trajectory generator input that causes the control to misbehave but generates a high reward?
+\end{itemize}
+
 \section{Network Losses}
 
 $\mathcal{L}_\text{action encoder}=\mathcal{L}_\text{forward} + \mathcal{L}_\text{smooth}+\mathcal{L}_\text{reconstruction}$
