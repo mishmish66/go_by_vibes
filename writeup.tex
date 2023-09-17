@@ -6,11 +6,6 @@
 \usepackage{algpseudocode}
 \usepackage{amsfonts}
 
-% Dark mode stuff, get rid of when sharing
-\usepackage{xcolor}
-\pagecolor[rgb]{0.15,0.15,0.15}   % Dark gray
-\color[rgb]{0.9,0.9,0.9}          % Light gray
-
 \newtheorem{definition}{Definition}
 
 \title{Go By Vibes}
@@ -39,32 +34,51 @@ Let $\mathcal{Z}^s$ and $\mathcal{Z}^a$ signify the spaces of all possible embed
 
 \section{Loss Functions}
 
-The first loss functions simply encourages the latent states and actions to be related to the actual states and actions.
-The log avoids the gradient vanishing, and the sigmoid prevents it from exploding.
-$$\mathcal{L}_\text{state reconstruction} = -\text{sigmoid}(\log(p_\theta(s|z^s))), z^s \sim p_\theta(z^s | s)$$
-$$\mathcal{L}_\text{action reconstruction} = -\text{sigmoid}(\log(p_\theta(a|z^a))), z^a \sim p_\theta(z^a | a)$$
+The first loss functions simply encourage the latent states and actions to be related to the actual states and actions.
+The log and sigmoid are added to prevent the gradient from vanishing or exploding.
+
+$$\mathcal{L}_\text{state reconstruction} = -\text{sigmoid}(\log(p_\theta(s|z^s)))$$
+$$z^s \sim p_\theta(z^s | s)$$
+$$\mathcal{L}_\text{action reconstruction} = -\text{sigmoid}(\log(p_\theta(a|z^a)))$$
+$$z^a \sim p_\theta(z^a | a)$$
+
+
 The next loss function trains a latent dynamics model to propogate the dynamics in the latent space.
-Additionally when applied to the state and action encoders this loss function encourages the states and actions to encode enough information about the state and action to predict the next state.
-$$\mathcal{L}_{\text{forward}} = D_{KL}\left( p_\psi\left({z^s}'\middle|z^s,z^a\right) \parallel p_\theta\left({z^s}'\middle| s\right) \right)$$ \\
-The next loss function will be the defining property of our latent space which is that distances in our latent space should correspond to the amount of time it takes to get from one state to another.
-There is a caveat to this which is that the time will be counted both in the forward and backward direction, so even if one state is unreachable from another state, their distance should still be well defined, and might even be low if they have some nearby common ancestor.
+Additionally when applied to the state and action encoders, this loss function encourages the latent states and actions to encode enough information about the actual states and actions to effectively predict the next state.
+
+$$\mathcal{L}_{\text{forward}} = D_{KL}\left( p_\psi\left({z^s}'\middle|z^s,z^a\right) \parallel p_\theta\left({z^s}'\middle| s'\right) \right)$$
+
+
+The next loss function will root our latent space in the dynamics of the system.
+We will enforce the constraint that a distance metric in our latent space should separate two distance at most by the time it takes to get from one to the other.
+One important note is that the time will be counted both in the forward and backward direction, so even if one state is difficult to reach from another state, their separation may be small if they have some nearby common ancestor.
 Ultimately this caveat will not deter us because it will still imbue the latent space with a particular measurement of similarity which is rooted in the dynamics of the robot.
-$$\mathcal{L}_\text{time} = -\sum\limits_i \text{sigmoid}(|d({z^s}',z^s_i) - \Delta t|), {z^s}' \sim p_\theta\left({z^s}'\middle|z^s_i,z^a_i\right)$$
+
+$$\mathcal{L}_\text{time} = -\sum\limits_i \text{sigmoid}(\max(d(z^s_{i+1},z^s_i) - \Delta t, 0))$$
+$$z^s_{i+1} \sim p_\theta(z^s_{i+1}|s_{i+1})$$
+
+
 Next we create a loss function which encourages the states and actions in latent space to be smooth with respect to the transition function.
 This means that small perturbations in the latent source state and action input to the forward model should result in proportionally small changes to the resultant precticted next state.
 We do this by sampling $N$ states in the neighborhood of our mean state $z_\mu^s$ and propogating those states through the latent forward model to get the predicted next states.
 All of the states should remain approximately within the neighborhood of the mean state's next state ${z_\mu^s}'$.
 Like before the log and sigmoid are used to prevent the gradient from vanishing or exploding and the sum is divided to keep the total reward between $0$ and $1$.
-$$\mathcal{L_\text{smooth}} = -\frac{1}{N}\sum\limits_j^N \text{sigmoid}(\log(p({z^s_j}'|\mu={z^s_\mu}',\sigma^2=\mathbf{I}))), {z^s_j}' \sim p({z^s_j}'|z^s_j,z^a_j)$$
-Additionally we want gradient descent in the space of states and actions to achieve desired next states to be smooth.
-In order to encourage the space to realize this property we will push nearby states and actions towards having similar jacobians through the latent forward model.
-The way we will do this is by sampling \(N\) latent state action pairs in the neighborhood of a source latent state action \(z^{sa}_\mu\) and putting them into this list \(\mathbf{z}^{sa}_{0:N-1}\).
-We will now take this list and feed each element through the latent forward model to get the predicted next latent states \(\mathbf{z}^{s'}_{0:N-1}\).
-We will now take the jacobians of each latent state in \(\mathbf{z}^{s}_{0:N-1}\) w.r.t. the latent state actions and stack them into the tensors \(\mathbf{J}^{\frac{z^{s'}}{z^{sa}}}_{0:N-1}/\)
-We will now make an operation which is analogous taking the standard deviation of the jacobian matrices in the stack.
-First we find the mean jacobian \(J^{\frac{{z^s}'}{z^{sa}}}_\mu = \frac{1}{N}\sum\limits_{i=0}^{N-1} \mathbf{J}^{\frac{{z^s}'}{z^{sa}}}_{i}\).
-Now we can find the standard deviation of the jacobian matrices by taking the norm of the difference between each jacobian matrix and the mean jacobian matrix.
-$$\mathcal{L_\text{gradients smooth}}= \sum\limits_i = \|J^{\frac{z^{s'}}{z^{sa}}}_\mu - J^{\frac{z^{s'}}{z^{sa}}}_i\|_F$$
+
+$$\mathcal{L}_\text{smooth} = -\frac{1}{N}\sum\limits_j^N \text{sigmoid}(\log(|d({z^s_j}', {z^s_\mu}') - d({z^s_j}, {z^s_\mu})|))$$
+$${z^s_j}' \sim p({z^s_j}'|z^s_j,z^a_j)$$
+$$z^s_j \sim p(z^s_j | \mu=z^s_\mu, \sigma^2=\mathbf{I})$$
+
+
+% Additionally we want gradient descent in the space of states and actions to achieve desired next states to be smooth.
+% In order to encourage the space to realize this property we will push nearby states and actions towards having similar jacobians through the latent forward model.
+% The way we will do this is by sampling \(N\) latent state action pairs in the neighborhood of a source latent state action \(z^{sa}_\mu\) and putting them into this list \(\mathbf{z}^{sa}_{0:N-1}\).
+% We will now take this list and feed each element through the latent forward model to get the predicted next latent states \(\mathbf{z}^{s'}_{0:N-1}\).
+% We will now take the jacobians of each latent state in \(\mathbf{z}^{s}_{0:N-1}\) w.r.t. the latent state actions and stack them into the tensor \(\mathbf{J}^{\frac{z^{s'}}{z^{sa}}}_{0:N-1}\)
+% We will now make an operation which is analogous taking the standard deviation of the jacobian matrices in the stack.
+% First we find the mean jacobian \(J^{\frac{{z^s}'}{z^{sa}}}_\mu = \frac{1}{N}\sum\limits_{i=0}^{N-1} \mathbf{J}^{\frac{{z^s}'}{z^{sa}}}_{i}\).
+% Now we can find the standard deviation of the jacobian matrices by taking the norm of the difference between each jacobian matrix and the mean jacobian matrix.
+
+% $$\mathcal{L_\text{gradients smooth}}= \sum\limits_i = \|J^{\frac{z^{s'}}{z^{sa}}}_\mu - J^{\frac{z^{s'}}{z^{sa}}}_i\|_F$$
 
 % $$\mathcal{L_\text{state regularization}}=-\sum\limits_i\max(\|{z_i^s}'-z_i^s\|-\lambda_\text{state}, 0)^2$$
 % $\mathcal{L}_\text{action regularization}=-\sum\limits_{i,j} \max(\|z'^s_{i,j}-z^s_i\| - \lambda_\text{act}, 0)^2, z_{i,j}'^s\sim p(z'^s_{i,j}|z^s_i,z^a_{i,j}),z^a_{i,j}\sim p(z^a_{i,j}|\mu=z^a_i, \sigma^2=\lambda_\text{act}^2)$
@@ -76,9 +90,21 @@ $$\mathcal{L_\text{gradients smooth}}= \sum\limits_i = \|J^{\frac{z^{s'}}{z^{sa}
     \item What is different about evaluating the loss function on the generated trajectory vs. on the predicted trajectory? Will the controller game the system by making a trajectory generator input that causes the control to misbehave but generates a high reward?
 \end{itemize}
 
-\section{Network Losses}
+\section{Expirements}
 
-$\mathcal{L}_\text{action encoder}=\mathcal{L}_\text{forward} + \mathcal{L}_\text{smooth}+\mathcal{L}_\text{reconstruction}$
+\begin{itemize}
+    \item Run simple trajectory optimization after training on various optimal policy rollouts in dm control problems.
+    \item Try unsupervised learning generating rollouts with bootstrapped trajectory optimization in brax ant.
+\end{itemize}
+
+% \section{Other Thoughts}
+
+% What does it mean to take a step of gradient descent in this latent space?
+% Let's start by examining the simplest case with just one single state.
+
+% \section{Network Losses}
+
+% $\mathcal{L}_\text{action encoder}=\mathcal{L}_\text{forward} + \mathcal{L}_\text{smooth}+\mathcal{L}_\text{reconstruction}$
 
 % Formalize more what you're trying to achieve here, what does SMOOTHNESS mean
 
