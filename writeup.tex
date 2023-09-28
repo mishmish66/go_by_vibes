@@ -32,41 +32,74 @@ Let's define that a neighborhood in our embedding space has a size of $1$ unit. 
 Let $\mathcal{Z}^s$ and $\mathcal{Z}^a$ signify the spaces of all possible embeddings of states and actions respectively.
 \end{definition}
 
-\section{Loss Functions}
+\section{Loss Functions 1}
 
 The first loss functions simply encourage the latent states and actions to be related to the actual states and actions.
 The log and sigmoid are added to prevent the gradient from vanishing or exploding.
+The action decoder is given the state information to allow it to encode actions in context within the current state.
 
-$$\mathcal{L}_\text{state reconstruction} = -\text{sigmoid}(\log(p_\theta(s|z^s)))$$
+$$\mathcal{L}_\text{reconstruction} = -\text{sigmoid}(\log(p_\theta(s|z^s))) - \text{sigmoid}(\log(p_\theta(a|z^s,z^a)))$$
 $$z^s \sim p_\theta(z^s | s)$$
-$$\mathcal{L}_\text{action reconstruction} = -\text{sigmoid}(\log(p_\theta(a|z^a)))$$
-$$z^a \sim p_\theta(z^a | a)$$
+$$z^a \sim p_\theta(z^a | s, a)$$
 
 
-The next loss function trains a latent dynamics model to propogate the dynamics in the latent space.
+The next loss function trains a latent dynamics model to propagate the dynamics in the latent space.
 Additionally when applied to the state and action encoders, this loss function encourages the latent states and actions to encode enough information about the actual states and actions to effectively predict the next state.
 
-$$\mathcal{L}_{\text{forward}} = D_{KL}\left( p_\psi\left({z^s}'\middle|z^s,z^a\right) \parallel p_\theta\left({z^s}'\middle| s'\right) \right)$$
-
-
-The next loss function will root our latent space in the dynamics of the system.
-We will enforce the constraint that a distance metric in our latent space should separate two distance at most by the time it takes to get from one to the other.
-One important note is that the time will be counted both in the forward and backward direction, so even if one state is difficult to reach from another state, their separation may be small if they have some nearby common ancestor.
-Ultimately this caveat will not deter us because it will still imbue the latent space with a particular measurement of similarity which is rooted in the dynamics of the robot.
-
-$$\mathcal{L}_\text{time} = -\sum\limits_i \text{sigmoid}(\max(d(z^s_{i+1},z^s_i) - \Delta t, 0))$$
-$$z^s_{i+1} \sim p_\theta(z^s_{i+1}|s_{i+1})$$
+$$\mathcal{L}_{\text{forward}} = \text{sigmoid}\left(\sum\limits_{i=1}^H \sum\limits_{j=i}^H \log(p_\theta({z^s_j}' | s_j))\right)$$
+$${z^s_j}' \sim p_\psi({z^s_j}' | z^s_{1:i},z^a_{1:H})$$
 
 
 Next we create a loss function which encourages the states and actions in latent space to be smooth with respect to the transition function.
-This means that small perturbations in the latent source state and action input to the forward model should result in proportionally small changes to the resultant precticted next state.
-We do this by sampling $N$ states in the neighborhood of our mean state $z_\mu^s$ and propogating those states through the latent forward model to get the predicted next states.
+This means that small perturbations in the latent source state and action input to the forward model should result in proportionally small changes to the resultant predicted next state.
+We do this by sampling $N$ states in the neighborhood of our mean state $z_\mu^s$ and propagating those states through the latent forward model to get the predicted next states.
 All of the states should remain approximately within the neighborhood of the mean state's next state ${z_\mu^s}'$.
 Like before the log and sigmoid are used to prevent the gradient from vanishing or exploding and the sum is divided to keep the total reward between $0$ and $1$.
 
-$$\mathcal{L}_\text{smooth} = -\frac{1}{N}\sum\limits_j^N \text{sigmoid}(\log(|d({z^s_j}', {z^s_\mu}') - d({z^s_j}, {z^s_\mu})|))$$
+$$\mathcal{L}_\text{smooth} = -\frac{1}{N}\sum\limits_j^N \text{sigmoid}(\log(d({z^s_j}', {z^s_\mu}') - d({z^s_j}, {z^s_\mu})|))$$
+$${z^s_i}' \sim p({z^s_i}'|z^s_i,z^a_i)$$
+$$z^s_j \sim p(z^s_i | \mu=z^s_\mu, \sigma^2=\mathbf{I})$$
+
+
+There exists a set of state and action encoders that have the previously mentioned properties.
+The easiest encoders to create in this set are the ones where all states and actions are within the neighborhood of all other states and actions.
+The most interesting encoder is the one that differentiates states which behave similarly from ones that do not.
+So the encoder that we are interested in is the one where the set of states that are in a neighborhood is the minimal one possible under our other constraints.
+We can encourage our encoder to embody this property with this loss.
+
+$$\mathcal{L}_\text{disperse} = -\frac{1}{N}\sum\limits_i^N \text{sigmoid}\log(d({z^s_i}', {z^s_\mu}'))$$
 $${z^s_j}' \sim p({z^s_j}'|z^s_j,z^a_j)$$
 $$z^s_j \sim p(z^s_j | \mu=z^s_\mu, \sigma^2=\mathbf{I})$$
+
+
+There is one more problem, which corresponds to the degenerate solutions in which an entire neighborhood of actions all map to pretty much the same action, rather than to distinct but similar actions.
+To avoid this degenerate possibility we will add a force pushing all of the actions together
+
+$$\mathcal{L}_\text{condense} = \frac{1}{N}\sum\limits_i^N \text{sigmoid}\log(d({z^a_i}, {z^a_\mu}))$$
+$$z^a_j \sim p(z^a_j | \mu=z^a_\mu, \sigma^2=\mathbf{I})$$
+
+% Next we want to create a loss function which will enforce a temporal locality to our latent system.
+% We would like to create a system in our latent space which exhibits the property that a single step can never carry us to a very significantly different state.
+% In order to do this we will introduce an additional constraint which ensures that our states can change at most by a certain distance for every unit of elapsed time.
+% This however allows for a degenerate solution in which all states are very close together and so no states are significantly different from any other states.
+% To prevent this we will enforce that from every state we can always reach a state that is at this maximum distance away.
+% We will execute this by rolling out a policy which maximizes the step-to-step distance during a trajectory, and then minimizing this loss over that max step dist trajectory.
+
+% $$\mathcal{L}_\text{time} = -\sum\limits_i \text{sigmoid}(|d(z^s_{i+1},z^s_i) - \Delta t|)$$
+% $$z^s_{i+1} \sim p_\theta(z^s_{i+1}|s_{i+1})$$
+
+Embody the reality that sometimes some states simply have transitions that deviate a lot.\\
+We need a way to easily differentiate those actions from other ones.\\
+We could say that actions with a norm of less than 1 should not change the state much.\\
+Is there anything we can say about large norm actions?\\
+
+So ok here is our space:\\
+
+- Small actions make small state changes.\\
+- How does a small action decode if there is no small change action.\\
+- Potentially make a conditioned decoder to make possible actions.
+
+
 
 
 % Additionally we want gradient descent in the space of states and actions to achieve desired next states to be smooth.
