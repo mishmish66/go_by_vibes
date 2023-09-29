@@ -87,7 +87,7 @@ state_encoder_state = create_train_state(state_encoder, [14], rng, learning_rate
 
 rng, key = jax.random.split(key)
 action_encoder_state = create_train_state(
-    action_encoder, [4, encoded_state_dim], rng, learning_rate=0.001
+    action_encoder, [4, encoded_state_dim], rng, learning_rate=0.01
 )
 
 rng, key = jax.random.split(key)
@@ -95,7 +95,7 @@ transition_model_state = create_train_state(
     transition_model,
     [(16, encoded_state_dim), (16, encoded_action_dim), (16,)],
     rng,
-    learning_rate=0.001,
+    learning_rate=0.01,
 )
 
 rng, key = jax.random.split(key)
@@ -105,7 +105,7 @@ state_decoder_state = create_train_state(
 
 rng, key = jax.random.split(key)
 action_decoder_state = create_train_state(
-    action_decoder, [encoded_action_dim, encoded_state_dim], rng, learning_rate=0.001
+    action_decoder, [encoded_action_dim, encoded_state_dim], rng, learning_rate=0.01
 )
 
 action_bounds = jnp.array([1.0, 1.0, 1.0, 1.0])

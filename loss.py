@@ -41,7 +41,8 @@ def loss_forward(
     state_encoder_state,
     action_encoder_state,
     transition_state,
-    rollout_result,
+    states,
+    actions,
     dt,
     state_encoder_params=None,
     action_encoder_params=None,
@@ -53,8 +54,6 @@ def loss_forward(
         action_encoder_params = action_encoder_state.params
     if transition_params is None:
         transition_params = transition_state.params
-
-    states, actions = rollout_result
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
@@ -149,7 +148,8 @@ def loss_reconstruction(
     action_encoder_state,
     state_decoder_state,
     action_decoder_state,
-    rollout_results,
+    states,
+    actions,
     state_encoder_params=None,
     action_encoder_params=None,
     state_decoder_params=None,
@@ -163,8 +163,6 @@ def loss_reconstruction(
         state_decoder_params = state_decoder_state.params
     if action_decoder_params is None:
         action_decoder_params = action_decoder_state.params
-
-    states, actions = rollout_results
 
     states = states[:, :-1]
     states = rearrange(states, "r t d -> (r t) d")
@@ -218,7 +216,8 @@ def loss_smoothness(
     state_encoder_state,
     action_encoder_state,
     transition_state,
-    rollout_results,
+    states,
+    actions,
     dt,
     state_encoder_params=None,
     action_encoder_params=None,
@@ -372,8 +371,6 @@ def loss_smoothness(
 
         return action_smoothness_loss + state_smoothness_loss
 
-    states, actions = rollout_results
-
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
     latent_states = jax.vmap(
@@ -400,7 +397,8 @@ def loss_disperse(
     state_encoder_state,
     action_encoder_state,
     transition_state,
-    rollout_results,
+    states,
+    actions,
     action_bounds,
     dt,
     state_encoder_params=None,
@@ -483,8 +481,6 @@ def loss_disperse(
         state_dispersion_loss = jnp.sum(state_dispersion_loss_per_i)
 
         return state_dispersion_loss
-
-    states, actions = rollout_results
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
