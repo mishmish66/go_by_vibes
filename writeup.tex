@@ -38,7 +38,7 @@ The first loss functions simply encourage the latent states and actions to be re
 The log and sigmoid are added to prevent the gradient from vanishing or exploding.
 The action decoder is given the state information to allow it to encode actions in context within the current state.
 
-$$\mathcal{L}_\text{reconstruction} = -\text{sigmoid}(\log(p_\theta(s|z^s))) - \text{sigmoid}(\log(p_\theta(a|z^s,z^a)))$$
+$$\mathcal{L}_\text{reconstruction} = -\text{sigmoid}(p_\theta(s|z^s)) - \text{sigmoid}(p_\theta(a|z^s,z^a))$$
 $$z^s \sim p_\theta(z^s | s)$$
 $$z^a \sim p_\theta(z^a | s, a)$$
 
@@ -46,7 +46,7 @@ $$z^a \sim p_\theta(z^a | s, a)$$
 The next loss function trains a latent dynamics model to propagate the dynamics in the latent space.
 Additionally when applied to the state and action encoders, this loss function encourages the latent states and actions to encode enough information about the actual states and actions to effectively predict the next state.
 
-$$\mathcal{L}_{\text{forward}} = \text{sigmoid}\left(\sum\limits_{i=1}^H \sum\limits_{j=i}^H \log(p_\theta({z^s_j}' | s_j))\right)$$
+$$\mathcal{L}_{\text{forward}} = \frac{1}{H} \sum\limits_{i=1}^H \frac{1}{H-j} \sum\limits_{j=i}^H \text{sigmoid}(d({z^s_j}', z^s_j)) \times 2 - 1$$
 $${z^s_j}' \sim p_\psi({z^s_j}' | z^s_{1:i},z^a_{1:H})$$
 
 
@@ -56,7 +56,7 @@ We do this by sampling $N$ states in the neighborhood of our mean state $z_\mu^s
 All of the states should remain approximately within the neighborhood of the mean state's next state ${z_\mu^s}'$.
 Like before the log and sigmoid are used to prevent the gradient from vanishing or exploding and the sum is divided to keep the total reward between $0$ and $1$.
 
-$$\mathcal{L}_\text{smooth} = -\frac{1}{N}\sum\limits_j^N \text{sigmoid}(\log(d({z^s_j}', {z^s_\mu}') - d({z^s_j}, {z^s_\mu})|))$$
+$$\mathcal{L}_\text{smooth} = \frac{1}{N}\sum\limits_j^N \text{sigmoid}(\max(0, d({z^s_j}', {z^s_\mu}') - 1)) \times 2 - 1$$
 $${z^s_i}' \sim p({z^s_i}'|z^s_i,z^a_i)$$
 $$z^s_j \sim p(z^s_i | \mu=z^s_\mu, \sigma^2=\mathbf{I})$$
 

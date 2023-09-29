@@ -24,9 +24,9 @@ def collect_rollout(
 
         rng, key = jax.random.split(key)
         new_action = policy(
+            rng,
             q,
             qd,
-            rng,
         )
 
         action = jax.lax.cond(
@@ -45,7 +45,7 @@ def collect_rollout(
 
     _, (q_result_sub, qd_result_sub, action_result_sub) = jax.lax.scan(
         scanf,
-        (q_0, qd_0, policy(q_0, qd_0, key), key, 0),
+        (q_0, qd_0, policy(key, q_0, qd_0), key, 0),
         None,
         steps * substep,
     )

@@ -6,6 +6,7 @@ from physics.visualize import animate
 
 import jax
 import jax.numpy as jnp
+import jax.profiler
 from clu import metrics
 import flax
 from flax import linen as nn
@@ -27,7 +28,7 @@ from nets import (
     encoded_state_dim,
     encoded_action_dim,
 )
-from policy import stupid_policy
+from policy import max_dist_policy, random_policy
 
 import timeit
 
@@ -43,22 +44,23 @@ bias_forces = jax.jit(bias_forces)
 mass_config = jnp.array([1.0, 0.25, 0.25, 0.04, 0.01, 0.01])
 shape_config = jnp.array([1.0, 0.25, 0.25])
 
-envs = 16
+envs = 1024
 
 rng, key = jax.random.split(key)
 home_q = jnp.array([0, 0, -0.0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
 # home_q = jnp.array([0, 0, -0.0, -jnp.pi, -0.0, -jnp.pi, 0.0], dtype=jnp.float32)
-start_q = home_q + jax.random.normal(rng, (envs, 7)) * 0.25
+start_q = home_q #+ jax.random.normal(rng, (envs, 7)) * 0.25
 
-rng, key = jax.random.split(key)
-qd = (
-    jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
-    + jax.random.normal(rng, (envs, 7)) * 0.1
-)
+# rng, key = jax.random.split(key)
+qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
+# qd = (
+#     jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
+#     + jax.random.normal(rng, (envs, 7)) * 0.1
+# )
 
 dt = 0.02
 substep = 2
-total_time = 5.0
+total_time = 2.0
 
 
 ### Set up RL stuff
@@ -76,49 +78,54 @@ action_embeddings = EmbeddingLayer(encoded_action_dim)
 
 state_encoder = StateEncoder()
 action_encoder = ActionEncoder()
-transition_model = TransitionModel()
+transition_model = TransitionModel(n=1e4, latent_dim=128)
 state_decoder = StateDecoder()
 action_decoder = ActionDecoder()
 
 rng, key = jax.random.split(key)
-state_encoder_state = create_train_state(state_encoder, 14, rng, learning_rate=0.01)
+state_encoder_state = create_train_state(state_encoder, [14], rng, learning_rate=0.01)
 
 rng, key = jax.random.split(key)
-action_encoder_state = create_train_state(action_encoder, 4, rng, learning_rate=0.001)
+action_encoder_state = create_train_state(
+    action_encoder, [4, encoded_state_dim], rng, learning_rate=0.001
+)
 
 rng, key = jax.random.split(key)
 transition_model_state = create_train_state(
-    transition_model, encoded_state_dim + encoded_action_dim, rng, learning_rate=0.001
+    transition_model,
+    [(16, encoded_state_dim), (16, encoded_action_dim), (16,)],
+    rng,
+    learning_rate=0.001,
 )
 
 rng, key = jax.random.split(key)
 state_decoder_state = create_train_state(
-    state_decoder, encoded_state_dim, rng, learning_rate=0.01
+    state_decoder, [encoded_state_dim], rng, learning_rate=0.01
 )
 
 rng, key = jax.random.split(key)
 action_decoder_state = create_train_state(
-    action_decoder, encoded_action_dim, rng, learning_rate=0.001
+    action_decoder, [encoded_action_dim, encoded_state_dim], rng, learning_rate=0.001
 )
 
+action_bounds = jnp.array([1.0, 1.0, 1.0, 1.0])
 
-def policy(q, qd, key):
+
+def policy(key, q, qd):
     state = jnp.concatenate([q, qd], axis=-1)
     target_state = jnp.concatenate([home_q, jnp.zeros_like(home_q)], axis=-1)
 
-    action = stupid_policy(
-        state_encoder_state,
-        action_decoder_state,
-        transition_model_state,
-        state,
-        target_state,
-        32,
-        key,
-        mass_config,
-        shape_config,
-        dt,
-        refine_steps=4,
-    )
+    rng, key = jax.random.split(key)
+    # action = max_dist_policy(
+    #     rng,
+    #     state_encoder_state,
+    #     action_decoder_state,
+    #     transition_model_state,
+    #     state,
+    #     window=8,  # 128,
+    #     dt=dt,
+    # )
+    action = random_policy(rng, action_bounds)
 
     clipped_action = jnp.clip(action, -5.0, 5.0)
 
@@ -136,13 +143,21 @@ rollout_result = None
 rollouts = 1024
 trajectories_per_rollout = 1024
 epochs = 1024
-minibatch = 2
+minibatch = 64
+
+state_dict = {
+    "state_encoder_state": state_encoder_state,
+    "action_encoder_state": action_encoder_state,
+    "transition_model_state": transition_model_state,
+    "state_decoder_state": state_decoder_state,
+    "action_decoder_state": action_decoder_state,
+}
 
 for rollout in range(rollouts):
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, envs)
+    rngs = jax.random.split(rng, trajectories_per_rollout)
 
-    rollout_result = jax.vmap(collect_rollout, in_axes=((0, 0) + (None,) * 6 + (0,)))(
+    rollout_result = jax.vmap(collect_rollout, in_axes=((None,) * 8 + (0,)))(
         start_q,
         qd,
         mass_config,
@@ -154,20 +169,8 @@ for rollout in range(rollouts):
         rngs,
     )
 
-    def do_epoch(
-        carry_pack,
-        key,
-    ):
-        (
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            state_decoder_state,
-            action_decoder_state,
-            epoch,
-        ) = carry_pack
-
-        jax.debug.print("Epoch: {}", epoch)
+    def do_epoch(epoch, key):
+        print(f"Epoch: {epoch}")
 
         # shuffle the data
         rng, key = jax.random.split(key)
@@ -180,79 +183,54 @@ for rollout in range(rollouts):
         while (start_i + minibatch) < states.shape[0]:
             end_i = start_i + minibatch
 
+            rollout_result_batch = (
+                states[start_i:end_i],
+                actions[start_i:end_i][..., :-1, :],
+            )
+
             rng, key = jax.random.split(key)
-
             (
-                state_encoder_state,
-                action_encoder_state,
-                transition_model_state,
-                state_decoder_state,
-                action_decoder_state,
+                state_dict["state_encoder_state"],
+                state_dict["action_encoder_state"],
+                state_dict["transition_model_state"],
+                state_dict["state_decoder_state"],
+                state_dict["action_decoder_state"],
             ) = train_step(
-                state_encoder_state,
-                action_encoder_state,
-                state_decoder_state,
-                action_decoder_state,
-                transition_model_state,
-                (states[start_i:end_i], actions[start_i:end_i]),
                 rng,
+                state_dict["state_encoder_state"],
+                state_dict["action_encoder_state"],
+                state_dict["state_decoder_state"],
+                state_dict["action_decoder_state"],
+                state_dict["transition_model_state"],
+                rollout_result_batch,
+                action_bounds,
+                dt,
             )
 
-            compute_metrics(
-                state_encoder_state,
-                action_encoder_state,
-                state_decoder_state,
-                action_decoder_state,
-                transition_model_state,
-                (states[start_i:end_i], actions[start_i:end_i]),
+            rng, key = jax.random.split(key)
+            metrics_result = compute_metrics(
                 rng,
+                state_dict["state_encoder_state"],
+                state_dict["action_encoder_state"],
+                state_dict["state_decoder_state"],
+                state_dict["action_decoder_state"],
+                state_dict["transition_model_state"],
+                rollout_result_batch,
+                action_bounds,
+                dt,
             )
+            
+            print(metrics_result[-1])
 
             start_i += minibatch
-
-        return (
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            state_decoder_state,
-            action_decoder_state,
-            epoch + 1,
-        ), None
+            
+        jax.profiler.save_device_memory_profile("memory.prof")
 
     rng, key = jax.random.split(key)
-    scan_rngs = jax.random.split(rng, epochs)
+    rngs = jax.random.split(rng, epochs)
+    for i in range(epochs):
+        do_epoch(i, rngs[i])
 
-    (
-        state_encoder_state,
-        action_encoder_state,
-        transition_model_state,
-        state_decoder_state,
-        action_decoder_state,
-    ), _ = jax.lax.scan(
-        do_epoch,
-        (
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            state_decoder_state,
-            action_decoder_state,
-            0,
-        ),
-        scan_rngs,
-    )
-
-# jit_collect = jax.jit(collect_rollout, static_argnames=("substep", "steps"))
-# rollout_result = jax.vmap(jit_collect, in_axes=((0, 0) + (None,) * 6 + (0,)))(
-#     start_q,
-#     qd,
-#     mass_config,
-#     shape_config,
-#     policy,
-#     dt,
-#     substep,
-#     int(total_time / dt),
-#     rngs,
-# )
 
 jax.debug.print("Done!")
 

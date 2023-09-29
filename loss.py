@@ -7,7 +7,17 @@ from jax.nn import sigmoid
 from einops import einsum, rearrange
 
 from rollout import collect_rollout
-from nets import encoded_state_dim, encoded_action_dim
+from nets import (
+    encoded_state_dim,
+    encoded_action_dim,
+    infer_states,
+    sample_gaussian,
+    encode_state,
+    encode_action,
+    encode_state_action,
+    get_state_space_gaussian,
+    get_action_space_gaussian,
+)
 
 
 def eval_gaussian(gaussian, point):
@@ -17,6 +27,7 @@ def eval_gaussian(gaussian, point):
 
     return multinorm_pdf(point, mean, jnp.diag(variance))
 
+
 def eval_log_gaussian(gaussian, point):
     dim = gaussian.shape[-1] // 2
     mean = gaussian[..., :dim]
@@ -24,174 +35,177 @@ def eval_log_gaussian(gaussian, point):
 
     return multinorm_logpdf(point, mean, jnp.diag(variance))
 
-def sample_gaussian(gaussian, key):
-    dim = gaussian.shape[-1] // 2
-    mean = gaussian[..., :dim]
-    variance = gaussian[..., dim:]
-
-    result = jax.random.multivariate_normal(key, mean, jnp.diag(variance))
-
-    return result
-
-
-def gauss_kl(p, q):
-    dim = p.shape[-1] // 2
-    p_var, q_var = p[..., dim:], q[..., dim:]
-    p_mean, q_mean = p[..., :dim], q[..., :dim]
-
-    ratio = p_var / q_var
-    mahalanobis = jnp.square(q_mean - p_mean) / q_var
-
-    return 0.5 * (jnp.sum(ratio) + jnp.sum(mahalanobis) - dim + jnp.sum(jnp.log(ratio)))
-
 
 def loss_forward(
-    state_encoder_params,
-    action_encoder_params,
-    transition_params,
+    key,
     state_encoder_state,
     action_encoder_state,
     transition_state,
     rollout_result,
     dt,
-    key,
+    state_encoder_params=None,
+    action_encoder_params=None,
+    transition_params=None,
 ):
+    if state_encoder_params is None:
+        state_encoder_params = state_encoder_state.params
+    if action_encoder_params is None:
+        action_encoder_params = action_encoder_state.params
+    if transition_params is None:
+        transition_params = transition_state.params
+
     states, actions = rollout_result
-    
-    actions = actions[:-1]
-
-    encoded_state_gaussians = jax.vmap(
-        jax.vmap(state_encoder_state.apply_fn, (None, 0)), (None, 0)
-    )({"params": state_encoder_params}, states)
-
-    encoded_action_gaussians = jax.vmap(
-        jax.vmap(action_encoder_state.apply_fn, (None, 0)), (None, 0)
-    )({"params": action_encoder_params}, actions)
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
-    sampled_encoded_states = jax.vmap(jax.vmap(sample_gaussian, (0, 0)))(
-        encoded_state_gaussians, rngs
-    )
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, states.shape[:-1])
-    sampled_encoded_actions = jax.vmap(jax.vmap(sample_gaussian, (0, 0)))(
-        encoded_action_gaussians, rngs
-    )
-
-    traj_length = states.shape[1]
-    triangle_mask = jnp.tri(traj_length)
-
-    state_times = jnp.arange(traj_length) * dt
-    action_times = jnp.arange(traj_length - 1) * dt
-
-    transition_model_output = jax.vmap(
-        jax.vmap(
-            transition_state.apply_fn,
-            (None, None, None, None, None, 0),
-        ),
-        (None, 0, 0, 0, 0, None),
-    )(
-        {"params": transition_params},
-        sampled_encoded_states,
-        sampled_encoded_actions,
-        state_times,
-        action_times,
-        triangle_mask,
-    )
-
-    next_state_gaussians_inference = transition_model_output[..., :-1, :]
-    next_state_gaussians_ground_truth = encoded_state_gaussians[..., 1:, :]
-
-    # next_state_gaussians_inference = rearrange(
-    #     next_state_gaussians_inference, "r t d -> (r t) d"
-    # )
-    # next_state_gaussians_ground_truth = rearrange(
-    #     next_state_gaussians_ground_truth, "r t d -> (r t) d"
-    # )
+    latent_states = jax.vmap(
+        jax.vmap(encode_state, (0, None, 0, None)), (0, None, 0, None)
+    )(rngs, state_encoder_state, states, state_encoder_params)
 
     rng, key = jax.random.split(key)
-    keys = jax.random.split(key, next_state_gaussians_inference.shape[:-1])
-    sampled_inferred_next_states = jax.vmap(sample_gaussian, (0, 0))(
-        next_state_gaussians_inference, keys
+    rngs = jax.random.split(rng, actions.shape[:-1])
+    latent_actions = jax.vmap(
+        jax.vmap(encode_action, (0, None, 0, 0, None)), (0, None, 0, 0, None)
+    )(rngs, action_encoder_state, actions, latent_states[:, :-1], action_encoder_params)
+
+    def single_traj(key, latent_states, latent_actions):
+        def single_i(key, known_state_mask):
+            known_states = einsum(
+                latent_states[:-1], known_state_mask[:-1], "... d, ... -> ... d"
+            )
+            rng, key = jax.random.split(key)
+            # jax.debug.print("Infer states!")
+            latent_states_prime = infer_states(
+                rng,
+                transition_state,
+                known_states,
+                latent_actions,
+                dt,
+                transition_params,
+            )
+
+            inferred_states = einsum(
+                latent_states_prime, (1 - known_state_mask)[1:], "... d, ... -> ... d"
+            )
+            gt_states = einsum(
+                latent_states[1:], (1 - known_state_mask)[1:], "... d, ... -> ... d"
+            )
+
+            indices = (
+                jnp.cumsum((1 - known_state_mask)[1:].astype(jnp.float32), axis=0) - 0.5
+            )
+            decreasing_function = 1 / ((indices - 0.5) * (1 - known_state_mask)[1:] + 1)
+
+            diffs = gt_states - inferred_states
+            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+
+            bounded_diff_mag_sq = sigmoid(diff_mag_sq * decreasing_function) * 2 - 1
+
+            return jnp.sum(bounded_diff_mag_sq) / inferred_states.shape[0]
+
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, latent_states.shape[0] - 1)
+        # Too much memory, need to do this in a loop
+        traj_i_results = jax.vmap(single_i, (0, 0))(
+            rngs,
+            jnp.tri(latent_states.shape[0])[:-1],
+        )
+        # tri = jnp.tri(latent_states.shape[0])[:-1]
+        # transposed_args = [(rngs[i], tri[i]) for i in range(rngs.shape[0])]
+        # traj_i_results = jax.lax.map(
+        #     jax.tree_util.Partial(single_i),
+        #     transposed_args,
+        # )
+
+        return jnp.sum(traj_i_results)
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[0])
+
+    # Accumulate the loss N states at a time
+    # each_traj_loss_batches = []
+    # N = 4
+    # i = 0
+    # while i < states.shape[0]:
+    #     end_i = min(i + N, states.shape[0])
+    #     each_traj_loss_batches.append(
+    #         jax.vmap(
+    #             single_traj,
+    #             (0, 0, 0),
+    #         )(rngs[i : end_i], latent_states[i : end_i], latent_actions[i : end_i])
+    #     )
+    #     i += N
+    # each_traj_loss = jnp.concatenate(each_traj_loss_batches)
+    each_traj_loss = jax.vmap(single_traj, (0, 0, 0))(
+        rngs, latent_states, latent_actions
     )
 
-    probs = jax.vmap(eval_log_gaussian, in_axes=(0, 0))(
-        next_state_gaussians_ground_truth, sampled_inferred_next_states
-    )
-
-    return -jnp.sum(sigmoid(probs)) / sum(probs.shape[:-1])
+    return jnp.sum(each_traj_loss)
 
 
 def loss_reconstruction(
-    state_encoder_params,
-    action_encoder_params,
-    state_decoder_params,
-    action_decoder_params,
+    key,
     state_encoder_state,
     action_encoder_state,
     state_decoder_state,
     action_decoder_state,
     rollout_results,
-    rng,
+    state_encoder_params=None,
+    action_encoder_params=None,
+    state_decoder_params=None,
+    action_decoder_params=None,
 ):
+    if state_encoder_params is None:
+        state_encoder_params = state_encoder_state.params
+    if action_encoder_params is None:
+        action_encoder_params = action_encoder_state.params
+    if state_decoder_params is None:
+        state_decoder_params = state_decoder_state.params
+    if action_decoder_params is None:
+        action_decoder_params = action_decoder_state.params
+
     states, actions = rollout_results
+
+    states = states[:, :-1]
     states = rearrange(states, "r t d -> (r t) d")
     actions = rearrange(actions, "r t d -> (r t) d")
 
-    encoded_state_gaussians = jax.vmap(
-        state_encoder_state.apply_fn,
-        (None, 0),
-    )({"params": state_encoder_params}, states)
-
-    rng, key = jax.random.split(rng)
-    rngs = jax.random.split(rng, (2, states.shape[0]))
-    
-    sampled_encoded_states = jax.vmap(
-        sample_gaussian,
-        (0, 0),
-    )(encoded_state_gaussians, rngs[0])
-    
-    encoded_action_gaussians = jax.vmap(
-        action_encoder_state.apply_fn,
-        (None, 0, 0),
-    )({"params": action_encoder_params},
-      actions,
-      sampled_encoded_states,
-    )
-    
-    sampled_encoded_actions = jax.vmap(
-        sample_gaussian,
-        (0, 0),
-    )(encoded_action_gaussians, rngs[1])
-
-    reconstructed_state_gaussians = jax.vmap(
-        state_decoder_state.apply_fn,
-        (None, 0),
-    )(
-        {"params": state_decoder_params},
-        sampled_encoded_states,
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[:-1])
+    latent_states = jax.vmap(encode_state, (0, None, 0, None))(
+        rngs, state_encoder_state, states, state_encoder_params
     )
 
-    reconstructed_action_gaussians = jax.vmap(
-        action_decoder_state.apply_fn,
-        (None, 0),
-    )(
-        {"params": action_decoder_params},
-        sampled_encoded_actions,
-        sampled_encoded_states,
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[:-1])
+    latent_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
+        rngs,
+        action_encoder_state,
+        actions,
+        latent_states,
+        action_encoder_params,
+    )
+
+    state_space_gaussians = jax.vmap(get_state_space_gaussian, (None, 0, None))(
+        state_decoder_state, latent_states, state_decoder_params
+    )
+    action_space_gaussians = jax.vmap(get_action_space_gaussian, (None, 0, 0, None))(
+        action_decoder_state, latent_actions, latent_states, action_decoder_params
     )
 
     state_probs = jax.vmap(
         eval_log_gaussian,
         (0, 0),
-    )(reconstructed_state_gaussians, states)
+    )(state_space_gaussians, states)
     action_probs = jax.vmap(
         eval_log_gaussian,
         (0, 0),
-    )(reconstructed_action_gaussians, actions)
+    )(action_space_gaussians, actions)
 
-    return -(jnp.sum(state_probs) + jnp.sum(action_probs))
+    bounded_scaled_state_probs = sigmoid(state_probs) * 2 - 1
+    bounded_scaled_action_probs = sigmoid(action_probs) * 2 - 1
+
+    return -(jnp.sum(bounded_scaled_state_probs) + jnp.sum(bounded_scaled_action_probs))
 
 
 # Continuity loss idea:
@@ -200,212 +214,350 @@ def loss_reconstruction(
 
 
 def loss_smoothness(
-    state_encoder_params,
-    action_encoder_params,
+    key,
     state_encoder_state,
     action_encoder_state,
     transition_state,
     rollout_results,
-    rng,
-    samples_per_pair=16,
+    dt,
+    state_encoder_params=None,
+    action_encoder_params=None,
 ):
-    def do_single_pair(state_gaussian, action_gaussian, rng):
-        rng, key = jax.random.split(rng)
-        rngs = jax.random.split(rng, (2, samples_per_pair))
+    if state_encoder_params is None:
+        state_encoder_params = state_encoder_state.params
+    if action_encoder_params is None:
+        action_encoder_params = action_encoder_state.params
 
-        # Sample state deltas from a unit normal distribution
-        sampled_states = jax.vmap(jax.random.multivariate_normal, (0, None, None))(
-            rngs[0], state_gaussian[..., encoded_state_dim:], jnp.eye(encoded_state_dim)
-        )
-        sampled_actions = jax.vmap(jax.random.multivariate_normal, (0, None, None))(
-            rngs[1],
-            action_gaussian[..., encoded_action_dim:],
-            jnp.eye(encoded_action_dim),
-        )
+    def loss_smoothness_one_trajectory(
+        key,
+        latent_states,
+        latent_actions,
+    ):
+        # Define the loss for one set of neighborhood actions
 
-        sampled_state_actions = jnp.concatenate(
-            [sampled_states, sampled_actions], axis=-1
-        )
+        def one_latent_trajectory_actions(key, known_state_mask):
+            same_actions_mask = known_state_mask[1:]
+            same_actions = einsum(
+                latent_actions, same_actions_mask, "... d, ... -> ... d"
+            )
 
-        mean_state_action = jnp.concatenate(
-            [
-                state_gaussian[..., :encoded_state_dim],
-                action_gaussian[..., :encoded_action_dim],
-            ],
-            axis=-1,
-        )
+            rng, key = jax.random.split(key)
+            rngs = jax.random.split(rng, latent_actions.shape[0])
+            neighborhood_actions = jax.vmap(
+                jax.random.multivariate_normal,
+                (0, 0, None),
+            )(
+                rngs,
+                latent_actions,
+                jnp.eye(latent_actions.shape[-1]),
+            )
+            new_neighborhood_actions = einsum(
+                neighborhood_actions, (1 - same_actions_mask), "... d, ... -> ... d"
+            )
 
-        mean_next_state_gaussian = transition_state.apply_fn(
-            {"params": transition_state.params}, mean_state_action
-        )
+            new_action_sequence = same_actions + new_neighborhood_actions
+
+            latent_source_states = latent_states[:-1]
+            known_states = einsum(
+                latent_source_states, known_state_mask[:-1], "... d, ... -> ... d"
+            )
+
+            # Run the neighborhood actions through the transition model
+            rng, key = jax.random.split(key)
+            latent_states_prime = infer_states(
+                rng,
+                transition_state,
+                known_states,
+                new_action_sequence,
+                dt,
+            )
+
+            # Get the ground truth latent states related to the inferred latent states
+            unknown_next_state_mask = 1 - known_state_mask[1:]
+            gt_latent_next_states = latent_states[1:]
+            gt_latent_states = einsum(
+                gt_latent_next_states, unknown_next_state_mask, "... d, ... -> ... d"
+            )
+            # Grab the inferred latent states and not the ones that are masked
+            inferred_latent_states = einsum(
+                latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
+            )
+            # Find the difference between gt and inferred latent states
+            diffs = gt_latent_states - inferred_latent_states
+            # Find the squared magnitude
+            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+            # Find the deviation from the neighborhood
+            neighborhood_violation = jnp.clip(diff_mag_sq - 1, a_min=0)
+            indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
+            decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
+            bounded_scaled_diffs = (
+                sigmoid(neighborhood_violation) * 2 - 1
+            ) * decreasing_function
+            bounded_result = sigmoid(jnp.sum(bounded_scaled_diffs))
+            return bounded_result
+
         rng, key = jax.random.split(key)
-        sampled_center_next_state = sample_gaussian(mean_next_state_gaussian, rng)
+        rngs = jax.random.split(rng, latent_states.shape[0])
 
-        sampled_next_state_gaussians = jax.vmap(
-            transition_state.apply_fn,
-            (None, 0),
-        )({"params": transition_state.params}, sampled_state_actions)
-
-        rng, key = jax.random.split(rng)
-        rngs = jax.random.split(rng, samples_per_pair)
-        double_sampled_next_states = jax.vmap(
-            sample_gaussian,
+        action_smoothness_loss_per_mask = jax.vmap(
+            one_latent_trajectory_actions,
             (0, 0),
-        )(sampled_next_state_gaussians, rngs)
+        )(rngs, jnp.tri(latent_states.shape[0]))
+        action_smoothness_loss = jnp.sum(action_smoothness_loss_per_mask)
 
-        # Evaluate the probability of the other state under a unit variance distributions
-        probs = jax.vmap(
-            multinorm_pdf,
-            (0, None, None),
-        )(
-            double_sampled_next_states,
-            sampled_center_next_state,
-            jnp.eye(encoded_state_dim),
-        )
+        # Now we will do the same thing but with the latent states
 
-        return -jnp.sum(probs)
+        def one_latent_trajectory_states(key, known_state_mask):
+            # Randomize the last state in the neighborhood
+            same_state_mask = known_state_mask[:-1]
+            same_states = einsum(
+                latent_states[:-1], same_state_mask, "... d, ... -> ... d"
+            )
+
+            new_state_mask = known_state_mask[:-1] - known_state_mask[1:]
+            state_to_be_randomized = einsum(
+                latent_states[:-1], new_state_mask, "... d, ... -> ... d"
+            )
+            state_to_be_randomized = jnp.sum(state_to_be_randomized, axis=0)
+
+            rng, key = jax.random.split(key)
+            normal = jax.random.normal(
+                rng,
+                state_to_be_randomized.shape,
+            )
+            new_state = state_to_be_randomized + normal
+
+            new_state_sequence = same_states + einsum(
+                new_state, new_state_mask, "d, ... -> ... d"
+            )
+
+            # Run the neighborhood actions through the transition model
+            rng, key = jax.random.split(key)
+            latent_states_prime = infer_states(
+                rng,
+                transition_state,
+                new_state_sequence,
+                latent_actions,
+                dt,
+            )
+
+            # Get the ground truth latent states related to the inferred latent states
+            unknown_next_state_mask = 1 - known_state_mask[1:]
+            gt_latent_states = einsum(
+                latent_states[1:], unknown_next_state_mask, "... d, ... -> ... d"
+            )
+            # Grab the inferred latent states and not the ones that are masked
+            inferred_latent_states = einsum(
+                latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
+            )
+            # Find the difference between gt and inferred latent states
+            diffs = gt_latent_states - inferred_latent_states
+            # Find the squared magnitude
+            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+            # Find the deviation from the neighborhood
+            neighborhood_violation = jnp.clip(diff_mag_sq - 1, a_min=0)
+            indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
+            decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
+            bounded_scaled_diffs = sigmoid(neighborhood_violation) * decreasing_function
+            bounded_result = sigmoid(jnp.sum(bounded_scaled_diffs))
+            return bounded_result
+
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, latent_states.shape[0])
+        state_smoothness_loss_per_mask = jax.vmap(
+            one_latent_trajectory_states,
+            (0, 0),
+        )(rngs, jnp.tri(latent_states.shape[0]))
+        state_smoothness_loss = jnp.sum(state_smoothness_loss_per_mask)
+
+        return action_smoothness_loss + state_smoothness_loss
 
     states, actions = rollout_results
 
-    states = rearrange(states, "r t d -> (r t) d")
-    actions = rearrange(actions, "r t d -> (r t) d")
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[:-1])
+    latent_states = jax.vmap(
+        jax.vmap(encode_state, (0, None, 0, None)), (0, None, 0, None)
+    )(rngs, state_encoder_state, states, state_encoder_params)
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[:-1])
+    latent_actions = jax.vmap(
+        jax.vmap(encode_action, (0, None, 0, 0, None)), (0, None, 0, 0, None)
+    )(rngs, action_encoder_state, actions, latent_states[:, :-1], action_encoder_params)
 
-    encoded_state_gaussians = jax.vmap(state_encoder_state.apply_fn, (None, 0))(
-        {"params": state_encoder_params}, states
-    )
-    encoded_action_gaussians = jax.vmap(action_encoder_state.apply_fn, (None, 0))(
-        {"params": action_encoder_params}, actions
-    )
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_states.shape[0])
+    losses = jax.vmap(
+        loss_smoothness_one_trajectory,
+        (0, 0, 0),
+    )(rngs, latent_states, latent_actions)
 
-    rng, key = jax.random.split(rng)
-    rngs = jax.random.split(key, encoded_state_gaussians.shape[:-1])
+    return jnp.sum(losses)
 
-    losses = jax.vmap(do_single_pair, (0, 0, 0))(
-        encoded_state_gaussians,
-        encoded_action_gaussians,
+
+def loss_disperse(
+    key,
+    state_encoder_state,
+    action_encoder_state,
+    transition_state,
+    rollout_results,
+    action_bounds,
+    dt,
+    state_encoder_params=None,
+    action_encoder_params=None,
+):
+    if state_encoder_params is None:
+        state_encoder_params = state_encoder_state.params
+    if action_encoder_params is None:
+        action_encoder_params = action_encoder_state.params
+
+    def loss_disperse_one_trajectory(
+        key,
+        latent_states,
+        latent_actions,
+    ):
+        def one_latent_trajectory(key, known_state_mask):
+            # Sample random actions at and right before unknown state
+            random_action_mask = 1 - known_state_mask[1:]
+            same_actions = einsum(
+                latent_actions, 1 - random_action_mask, "... d, ... -> ... d"
+            )
+
+            rng, key = jax.random.split(key)
+            uniform_random = (
+                jax.random.uniform(
+                    rng,
+                    (*latent_actions.shape[:-1], action_bounds.shape[0]),
+                )
+                * 2
+                - 1
+            )
+            all_actions_random = einsum(
+                uniform_random, action_bounds, "... d, d -> ... d"
+            )
+
+            rng, key = jax.random.split(key)
+            all_latent_random_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
+                jax.random.split(rng, all_actions_random.shape[0]),
+                action_encoder_state,
+                all_actions_random,
+                latent_states[:-1],
+                action_encoder_params,
+            )
+
+            latent_random_actions = einsum(
+                all_latent_random_actions, random_action_mask, "... d, ... -> ... d"
+            )
+
+            new_action_sequence = same_actions + latent_random_actions
+
+            rng, key = jax.random.split(key)
+            latent_states_prime = infer_states(
+                rng, transition_state, latent_states[:-1], new_action_sequence, dt
+            )
+
+            # Find the difference between gt and inferred latent states
+            unknown_next_state_mask = 1 - known_state_mask[1:]
+            gt_latent_states = einsum(
+                latent_states[1:], unknown_next_state_mask, "... d, ... -> ... d"
+            )
+            inferred_latent_states = einsum(
+                latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
+            )
+            diffs = gt_latent_states - inferred_latent_states
+            # Find the squared magnitude
+            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+
+            # Find the deviation from the neighborhood
+            indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
+            decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
+            bounded_scaled_diffs = sigmoid(diff_mag_sq) * decreasing_function
+            bounded_result = sigmoid(jnp.sum(bounded_scaled_diffs))
+            return -bounded_result
+
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, latent_states.shape[0])
+        state_dispersion_loss_per_i = jax.vmap(one_latent_trajectory, (0, 0))(
+            rngs, jnp.tri(latent_states.shape[0])
+        )
+        state_dispersion_loss = jnp.sum(state_dispersion_loss_per_i)
+
+        return state_dispersion_loss
+
+    states, actions = rollout_results
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[:-1])
+    latent_states = jax.vmap(
+        jax.vmap(encode_state, (0, None, 0, None)), (0, None, 0, None)
+    )(rngs, state_encoder_state, states, state_encoder_params)
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[:-1])
+    latent_actions = jax.vmap(
+        jax.vmap(encode_action, (0, None, 0, 0, None)), (0, None, 0, 0, None)
+    )(rngs, action_encoder_state, actions, latent_states[:, :-1], action_encoder_params)
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_states.shape[0])
+    losses = jax.vmap(loss_disperse_one_trajectory, (0, 0, 0))(
         rngs,
+        latent_states,
+        latent_actions,
     )
 
     return jnp.sum(losses)
 
 
-def loss_state_regularization(
-    state_encoder_params,
+def loss_condense(
+    key,
     state_encoder_state,
     action_encoder_state,
     rollout_results,
-    dt,
-    rng,
+    action_bounds,
+    action_encoder_params=None,
 ):
-    # Encode states and actions
+    if action_encoder_params is None:
+        action_encoder_params = action_encoder_state.params
+
+    def one_action(key, latent_state, latent_action):
+        rng, key = jax.random.split(key)
+        random_action = (
+            jax.random.uniform(rng, action_bounds.shape) * 2 - 1 * action_bounds
+        )
+
+        rng, key = jax.random.split(key)
+        random_latent_action = encode_action(
+            rng,
+            action_encoder_state,
+            random_action,
+            latent_state,
+            action_encoder_params,
+        )
+
+        diff = random_latent_action - latent_action
+        bounded_diffs_mag_sq = diff.T @ diff
+
+        return sigmoid(bounded_diffs_mag_sq) * 2 - 1
+
     states, actions = rollout_results
-    encoded_state_gaussians = jax.vmap(state_encoder_state.apply_fn, (None, 0))(
-        {"params": state_encoder_params}, states
-    )
-    encoded_action_gaussians = jax.vmap(action_encoder_state.apply_fn, (None, 0))(
-        {"params": action_encoder_state.params}, actions
+
+    states = states[:, :-1]
+    states = rearrange(states, "r t d -> (r t) d")
+    actions = rearrange(actions, "r t d -> (r t) d")
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[:-1])
+    latent_states = jax.vmap(encode_state, (0, None, 0))(
+        rngs, state_encoder_state, states
     )
 
-    # Get next and previous states and actions by throwing out first and last
-    next_state_gaussians = encoded_state_gaussians[..., 1:, :]
-    prev_state_gaussians = encoded_state_gaussians[..., :-1, :]
-    next_action_gaussians = encoded_action_gaussians[..., 1:, :]
-    prev_action_gaussians = encoded_action_gaussians[..., :-1, :]
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[:-1])
+    latent_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
+        rngs, action_encoder_state, actions, latent_states, action_encoder_params
+    )
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_states.shape[0])
+    result = jax.vmap(one_action, (0, 0, 0))(rngs, latent_states, latent_actions)
 
-    next_state_gaussians = rearrange(next_state_gaussians, "r t d -> (r t) d")
-    prev_state_gaussians = rearrange(prev_state_gaussians, "r t d -> (r t) d")
-    next_action_gaussians = rearrange(next_action_gaussians, "r t d -> (r t) d")
-    prev_action_gaussians = rearrange(prev_action_gaussians, "r t d -> (r t) d")
-
-    # Sample a point from each
-    rng, key = jax.random.split(rng)
-    rngs = jax.random.split(
-        rng,
-        (2, *next_state_gaussians.shape[:-1]),
-    )
-    encoded_next_states = jax.vmap(sample_gaussian, (0, 0))(
-        next_state_gaussians, rngs[0]
-    )
-    encoded_prev_states = jax.vmap(sample_gaussian, (0, 0))(
-        prev_state_gaussians, rngs[1]
-    )
-
-    # Enforce similarity of states and next states
-    state_loss = -jax jnp.abs(
-        jnp.linalg.norm(encoded_prev_states - encoded_next_states) - dt,
-    )
-
-    return jnp.sum(state_loss)
-
-
-def loss_action_regularization(
-    action_encoder_params,
-    state_encoder_state,
-    action_encoder_state,
-    transition_state,
-    rollout_results,
-    action_neighborhood_size,
-    rng,
-):
-    # Encode states and actions
-    states, actions = rollout_results
-    encoded_state_gaussians = jax.vmap(state_encoder_state.apply_fn, (None, 0))(
-        {"params": state_encoder_state.params}, states
-    )
-    encoded_action_gaussians = jax.vmap(action_encoder_state.apply_fn, (None, 0))(
-        {"params": action_encoder_params}, actions
-    )
-
-    # Get next and previous states and actions by throwing out first and last
-    next_state_gaussians = encoded_state_gaussians[..., 1:, :]
-    prev_state_gaussians = encoded_state_gaussians[..., :-1, :]
-    next_action_gaussians = encoded_action_gaussians[..., 1:, :]
-    prev_action_gaussians = encoded_action_gaussians[..., :-1, :]
-
-    next_state_gaussians = rearrange(next_state_gaussians, "r t d -> (r t) d")
-    prev_state_gaussians = rearrange(prev_state_gaussians, "r t d -> (r t) d")
-    next_action_gaussians = rearrange(next_action_gaussians, "r t d -> (r t) d")
-    prev_action_gaussians = rearrange(prev_action_gaussians, "r t d -> (r t) d")
-
-    # Sample a point from each
-    rng, key = jax.random.split(rng)
-    rngs = jax.random.split(
-        rng,
-        (5, *next_state_gaussians.shape[:-1]),
-    )
-    encoded_next_states = jax.vmap(sample_gaussian, (0, 0))(
-        next_state_gaussians, rngs[0]
-    )
-    encoded_prev_states = jax.vmap(sample_gaussian, (0, 0))(
-        prev_state_gaussians, rngs[1]
-    )
-    encoded_prev_actions = jax.vmap(sample_gaussian, (0, 0))(
-        prev_action_gaussians, rngs[2]
-    )
-
-    # Sample actions in neighborhood of prev actions
-    similar_prev_actions = jax.vmap(jax.random.multivariate_normal, (0, 0, None))(
-        rngs[3], encoded_prev_actions, jnp.eye(encoded_action_dim)
-    )
-    similar_state_actions = jnp.concatenate(
-        [encoded_prev_states, similar_prev_actions], axis=-1
-    )
-    # Step the prev states through the similar actions
-    post_similar_state_action_gaussians = jax.vmap(
-        transition_state.apply_fn,
-        (None, 0),
-    )(
-        {"params": transition_state.params},
-        similar_state_actions,
-    )
-    sampled_post_similar_state_actions = jax.vmap(
-        sample_gaussian,
-        (0, 0),
-    )(post_similar_state_action_gaussians, rngs[4])
-
-    # Penalize for leaving the action neighborhood
-    dists = jnp.linalg.norm(sampled_post_similar_state_actions - encoded_next_states)
-    neighborhood_violation = dists - action_neighborhood_size
-    action_loss = -jnp.square(jnp.clip(neighborhood_violation, a_min=0, a_max=None))
-
-    return jnp.sum(action_loss)
+    return jnp.sum(result)
