@@ -568,8 +568,8 @@ def get_grads(
         state_decoder_grads,
         action_decoder_grads,
         {
-            "state_encoder_losses": action_encoder_loss_info,
-            "action_encoder_losses": state_encoder_loss_info,
+            "state_encoder_losses": state_encoder_loss_info,
+            "action_encoder_losses": action_encoder_loss_info,
             "transition_model_losses": transition_model_loss_info,
             "state_decoder_losses": state_decoder_loss_info,
             "action_decoder_losses": action_decoder_loss_info,
@@ -778,5 +778,5 @@ def dump_infos(location, infos, epoch, start_i, end_i):
         filepath = os.path.join(location, path)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "a") as f:
-            string_to_add = f"{string} Epoch {epoch}, Samples {start_i} - {end_i}\n"
+            string_to_add = f"{string}\t\tEpoch {epoch}, Samples {start_i} - {end_i}\n"
             f.write(string_to_add)
