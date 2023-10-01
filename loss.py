@@ -68,7 +68,10 @@ def loss_forward(
     )(rngs, action_encoder_state, actions, latent_states[:, :-1], action_encoder_params)
 
     def single_traj(key, latent_states, latent_actions):
-        def single_i(key, known_state_mask):
+        def single_i(key, last_known_state_i):
+            indices = jnp.arange(latent_states.shape[0])
+            known_state_mask = indices < last_known_state_i
+
             known_states = einsum(
                 latent_states[:-1], known_state_mask[:-1], "... d, ... -> ... d"
             )
@@ -103,18 +106,12 @@ def loss_forward(
             return jnp.sum(bounded_diff_mag_sq) / inferred_states.shape[0]
 
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, latent_states.shape[0] - 1)
-        # Too much memory, need to do this in a loop
-        traj_i_results = jax.vmap(single_i, (0, 0))(
-            rngs,
-            jnp.tri(latent_states.shape[0])[:-1],
+
+        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+        traj_i_results = single_i(
+            rng,
+            random_index,
         )
-        # tri = jnp.tri(latent_states.shape[0])[:-1]
-        # transposed_args = [(rngs[i], tri[i]) for i in range(rngs.shape[0])]
-        # traj_i_results = jax.lax.map(
-        #     jax.tree_util.Partial(single_i),
-        #     transposed_args,
-        # )
 
         return jnp.sum(traj_i_results)
 
@@ -200,8 +197,8 @@ def loss_reconstruction(
         (0, 0),
     )(action_space_gaussians, actions)
 
-    bounded_scaled_state_probs = sigmoid(state_probs) * 2 - 1
-    bounded_scaled_action_probs = sigmoid(action_probs) * 2 - 1
+    bounded_scaled_state_probs = (sigmoid(state_probs) * 2 - 1) / states.shape[0]
+    bounded_scaled_action_probs = (sigmoid(action_probs) * 2 - 1) / actions.shape[0]
 
     return -(jnp.sum(bounded_scaled_state_probs) + jnp.sum(bounded_scaled_action_probs))
 
@@ -234,7 +231,10 @@ def loss_smoothness(
     ):
         # Define the loss for one set of neighborhood actions
 
-        def one_latent_trajectory_actions(key, known_state_mask):
+        def one_latent_trajectory_actions(key, last_known_state_i):
+            indices = jnp.arange(latent_states.shape[0])
+            known_state_mask = indices < last_known_state_i
+
             same_actions_mask = known_state_mask[1:]
             same_actions = einsum(
                 latent_actions, same_actions_mask, "... d, ... -> ... d"
@@ -296,17 +296,21 @@ def loss_smoothness(
             return bounded_result
 
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, latent_states.shape[0])
 
-        action_smoothness_loss_per_mask = jax.vmap(
-            one_latent_trajectory_actions,
-            (0, 0),
-        )(rngs, jnp.tri(latent_states.shape[0]))
+        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+
+        action_smoothness_loss_per_mask = one_latent_trajectory_actions(
+            rng, random_index
+        )
         action_smoothness_loss = jnp.sum(action_smoothness_loss_per_mask)
 
         # Now we will do the same thing but with the latent states
 
-        def one_latent_trajectory_states(key, known_state_mask):
+        def one_latent_trajectory_states(key, last_known_state_i):
+            indices = jnp.arange(latent_states.shape[0])
+            known_state_mask = indices < last_known_state_i
+            known_state_mask = known_state_mask.astype(jnp.float32)
+
             # Randomize the last state in the neighborhood
             same_state_mask = known_state_mask[:-1]
             same_states = einsum(
@@ -362,11 +366,11 @@ def loss_smoothness(
             return bounded_result
 
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, latent_states.shape[0])
-        state_smoothness_loss_per_mask = jax.vmap(
-            one_latent_trajectory_states,
-            (0, 0),
-        )(rngs, jnp.tri(latent_states.shape[0]))
+        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+        rng, key = jax.random.split(key)
+        state_smoothness_loss_per_mask = one_latent_trajectory_states(
+            rng, random_index
+        )
         state_smoothness_loss = jnp.sum(state_smoothness_loss_per_mask)
 
         return action_smoothness_loss + state_smoothness_loss
@@ -414,7 +418,11 @@ def loss_disperse(
         latent_states,
         latent_actions,
     ):
-        def one_latent_trajectory(key, known_state_mask):
+        def one_latent_trajectory(key, last_known_state_i):
+            
+            indices = jnp.arange(latent_states.shape[0])
+            known_state_mask = indices < last_known_state_i
+            
             # Sample random actions at and right before unknown state
             random_action_mask = 1 - known_state_mask[1:]
             same_actions = einsum(
@@ -473,10 +481,13 @@ def loss_disperse(
             bounded_result = sigmoid(jnp.sum(bounded_scaled_diffs))
             return -bounded_result
 
+        
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, latent_states.shape[0])
-        state_dispersion_loss_per_i = jax.vmap(one_latent_trajectory, (0, 0))(
-            rngs, jnp.tri(latent_states.shape[0])
+        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+        
+        rng, key = jax.random.split(key)
+        state_dispersion_loss_per_i = one_latent_trajectory(
+            rng, random_index
         )
         state_dispersion_loss = jnp.sum(state_dispersion_loss_per_i)
 
