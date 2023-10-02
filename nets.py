@@ -258,6 +258,7 @@ def encode_state(
     state,
     state_encoder_params=None,
 ):
+    # You were investigating the size of state here cuz it was wack somewhere
     if state_encoder_params is None:
         state_encoder_params = state_encoder_state.params
 

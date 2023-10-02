@@ -57,86 +57,56 @@ def loss_forward(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
-    latent_states = jax.vmap(
-        jax.vmap(encode_state, (0, None, 0, None)), (0, None, 0, None)
-    )(rngs, state_encoder_state, states, state_encoder_params)
+    latent_states = jax.vmap(encode_state, (0, None, 0, None))(
+        rngs, state_encoder_state, states, state_encoder_params
+    )
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[:-1])
-    latent_actions = jax.vmap(
-        jax.vmap(encode_action, (0, None, 0, 0, None)), (0, None, 0, 0, None)
-    )(rngs, action_encoder_state, actions, latent_states[:, :-1], action_encoder_params)
-
-    def single_traj(key, latent_states, latent_actions):
-        def single_i(key, last_known_state_i):
-            indices = jnp.arange(latent_states.shape[0])
-            known_state_mask = indices < last_known_state_i
-
-            known_states = einsum(
-                latent_states[:-1], known_state_mask[:-1], "... d, ... -> ... d"
-            )
-            rng, key = jax.random.split(key)
-            # jax.debug.print("Infer states!")
-            latent_states_prime = infer_states(
-                rng,
-                transition_state,
-                known_states,
-                latent_actions,
-                dt,
-                transition_params,
-            )
-
-            inferred_states = einsum(
-                latent_states_prime, (1 - known_state_mask)[1:], "... d, ... -> ... d"
-            )
-            gt_states = einsum(
-                latent_states[1:], (1 - known_state_mask)[1:], "... d, ... -> ... d"
-            )
-
-            indices = (
-                jnp.cumsum((1 - known_state_mask)[1:].astype(jnp.float32), axis=0) - 0.5
-            )
-            decreasing_function = 1 / ((indices - 0.5) * (1 - known_state_mask)[1:] + 1)
-
-            diffs = gt_states - inferred_states
-            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
-
-            bounded_diff_mag_sq = sigmoid(diff_mag_sq * decreasing_function) * 2 - 1
-
-            return jnp.sum(bounded_diff_mag_sq) / inferred_states.shape[0]
-
-        rng, key = jax.random.split(key)
-
-        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
-        traj_i_results = single_i(
-            rng,
-            random_index,
-        )
-
-        return jnp.sum(traj_i_results)
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, states.shape[0])
-
-    # Accumulate the loss N states at a time
-    # each_traj_loss_batches = []
-    # N = 4
-    # i = 0
-    # while i < states.shape[0]:
-    #     end_i = min(i + N, states.shape[0])
-    #     each_traj_loss_batches.append(
-    #         jax.vmap(
-    #             single_traj,
-    #             (0, 0, 0),
-    #         )(rngs[i : end_i], latent_states[i : end_i], latent_actions[i : end_i])
-    #     )
-    #     i += N
-    # each_traj_loss = jnp.concatenate(each_traj_loss_batches)
-    each_traj_loss = jax.vmap(single_traj, (0, 0, 0))(
-        rngs, latent_states, latent_actions
+    latent_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
+        rngs,
+        action_encoder_state,
+        actions,
+        latent_states[:-1],
+        action_encoder_params,
     )
 
-    return jnp.sum(each_traj_loss)
+    rng, key = jax.random.split(key)
+    last_known_state_i = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+
+    indices = jnp.arange(latent_states.shape[0])
+    known_state_mask = indices < last_known_state_i
+
+    known_states = einsum(
+        latent_states[:-1], known_state_mask[:-1], "... d, ... -> ... d"
+    )
+    rng, key = jax.random.split(key)
+    # jax.debug.print("Infer states!")
+    latent_states_prime = infer_states(
+        rng,
+        transition_state,
+        known_states,
+        latent_actions,
+        dt,
+        transition_params,
+    )
+
+    inferred_states = einsum(
+        latent_states_prime, (1 - known_state_mask)[1:], "... d, ... -> ... d"
+    )
+    gt_states = einsum(
+        latent_states[1:], (1 - known_state_mask)[1:], "... d, ... -> ... d"
+    )
+
+    indices = jnp.cumsum((1 - known_state_mask)[1:].astype(jnp.float32), axis=0) - 0.5
+    decreasing_function = 1 / ((indices - 0.5) * (1 - known_state_mask)[1:] + 1)
+
+    diffs = gt_states - inferred_states
+    diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+
+    bounded_diff_mag_sq = sigmoid(diff_mag_sq * decreasing_function) * 2 - 1
+
+    return jnp.sum(bounded_diff_mag_sq) / inferred_states.shape[0]
 
 
 def loss_reconstruction(
@@ -161,9 +131,7 @@ def loss_reconstruction(
     if action_decoder_params is None:
         action_decoder_params = action_decoder_state.params
 
-    states = states[:, :-1]
-    states = rearrange(states, "r t d -> (r t) d")
-    actions = rearrange(actions, "r t d -> (r t) d")
+    states = states[:-1]
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
@@ -200,7 +168,10 @@ def loss_reconstruction(
     bounded_scaled_state_probs = (sigmoid(state_probs) * 2 - 1) / states.shape[0]
     bounded_scaled_action_probs = (sigmoid(action_probs) * 2 - 1) / actions.shape[0]
 
-    return -(jnp.sum(bounded_scaled_state_probs) + jnp.sum(bounded_scaled_action_probs))
+    return -(
+        jnp.sum(bounded_scaled_state_probs) / states.shape[0]
+        + jnp.sum(bounded_scaled_action_probs) / actions.shape[0]
+    )
 
 
 # Continuity loss idea:
@@ -224,176 +195,152 @@ def loss_smoothness(
     if action_encoder_params is None:
         action_encoder_params = action_encoder_state.params
 
-    def loss_smoothness_one_trajectory(
-        key,
-        latent_states,
-        latent_actions,
-    ):
-        # Define the loss for one set of neighborhood actions
-
-        def one_latent_trajectory_actions(key, last_known_state_i):
-            indices = jnp.arange(latent_states.shape[0])
-            known_state_mask = indices < last_known_state_i
-
-            same_actions_mask = known_state_mask[1:]
-            same_actions = einsum(
-                latent_actions, same_actions_mask, "... d, ... -> ... d"
-            )
-
-            rng, key = jax.random.split(key)
-            rngs = jax.random.split(rng, latent_actions.shape[0])
-            neighborhood_actions = jax.vmap(
-                jax.random.multivariate_normal,
-                (0, 0, None),
-            )(
-                rngs,
-                latent_actions,
-                jnp.eye(latent_actions.shape[-1]),
-            )
-            new_neighborhood_actions = einsum(
-                neighborhood_actions, (1 - same_actions_mask), "... d, ... -> ... d"
-            )
-
-            new_action_sequence = same_actions + new_neighborhood_actions
-
-            latent_source_states = latent_states[:-1]
-            known_states = einsum(
-                latent_source_states, known_state_mask[:-1], "... d, ... -> ... d"
-            )
-
-            # Run the neighborhood actions through the transition model
-            rng, key = jax.random.split(key)
-            latent_states_prime = infer_states(
-                rng,
-                transition_state,
-                known_states,
-                new_action_sequence,
-                dt,
-            )
-
-            # Get the ground truth latent states related to the inferred latent states
-            unknown_next_state_mask = 1 - known_state_mask[1:]
-            gt_latent_next_states = latent_states[1:]
-            gt_latent_states = einsum(
-                gt_latent_next_states, unknown_next_state_mask, "... d, ... -> ... d"
-            )
-            # Grab the inferred latent states and not the ones that are masked
-            inferred_latent_states = einsum(
-                latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
-            )
-            # Find the difference between gt and inferred latent states
-            diffs = gt_latent_states - inferred_latent_states
-            # Find the squared magnitude
-            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
-            # Find the deviation from the neighborhood
-            neighborhood_violation = jnp.clip(diff_mag_sq - 1, a_min=0)
-            indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
-            decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
-            bounded_scaled_diffs = (
-                sigmoid(neighborhood_violation) * 2 - 1
-            ) * decreasing_function
-            bounded_result = sigmoid(jnp.sum(bounded_scaled_diffs))
-            return bounded_result
-
-        rng, key = jax.random.split(key)
-
-        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
-
-        action_smoothness_loss_per_mask = one_latent_trajectory_actions(
-            rng, random_index
-        )
-        action_smoothness_loss = jnp.sum(action_smoothness_loss_per_mask)
-
-        # Now we will do the same thing but with the latent states
-
-        def one_latent_trajectory_states(key, last_known_state_i):
-            indices = jnp.arange(latent_states.shape[0])
-            known_state_mask = indices < last_known_state_i
-            known_state_mask = known_state_mask.astype(jnp.float32)
-
-            # Randomize the last state in the neighborhood
-            same_state_mask = known_state_mask[:-1]
-            same_states = einsum(
-                latent_states[:-1], same_state_mask, "... d, ... -> ... d"
-            )
-
-            new_state_mask = known_state_mask[:-1] - known_state_mask[1:]
-            state_to_be_randomized = einsum(
-                latent_states[:-1], new_state_mask, "... d, ... -> ... d"
-            )
-            state_to_be_randomized = jnp.sum(state_to_be_randomized, axis=0)
-
-            rng, key = jax.random.split(key)
-            normal = jax.random.normal(
-                rng,
-                state_to_be_randomized.shape,
-            )
-            new_state = state_to_be_randomized + normal
-
-            new_state_sequence = same_states + einsum(
-                new_state, new_state_mask, "d, ... -> ... d"
-            )
-
-            # Run the neighborhood actions through the transition model
-            rng, key = jax.random.split(key)
-            latent_states_prime = infer_states(
-                rng,
-                transition_state,
-                new_state_sequence,
-                latent_actions,
-                dt,
-            )
-
-            # Get the ground truth latent states related to the inferred latent states
-            unknown_next_state_mask = 1 - known_state_mask[1:]
-            gt_latent_states = einsum(
-                latent_states[1:], unknown_next_state_mask, "... d, ... -> ... d"
-            )
-            # Grab the inferred latent states and not the ones that are masked
-            inferred_latent_states = einsum(
-                latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
-            )
-            # Find the difference between gt and inferred latent states
-            diffs = gt_latent_states - inferred_latent_states
-            # Find the squared magnitude
-            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
-            # Find the deviation from the neighborhood
-            neighborhood_violation = jnp.clip(diff_mag_sq - 1, a_min=0)
-            indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
-            decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
-            bounded_scaled_diffs = sigmoid(neighborhood_violation) * decreasing_function
-            bounded_result = sigmoid(jnp.sum(bounded_scaled_diffs))
-            return bounded_result
-
-        rng, key = jax.random.split(key)
-        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
-        rng, key = jax.random.split(key)
-        state_smoothness_loss_per_mask = one_latent_trajectory_states(
-            rng, random_index
-        )
-        state_smoothness_loss = jnp.sum(state_smoothness_loss_per_mask)
-
-        return action_smoothness_loss + state_smoothness_loss
-
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
-    latent_states = jax.vmap(
-        jax.vmap(encode_state, (0, None, 0, None)), (0, None, 0, None)
-    )(rngs, state_encoder_state, states, state_encoder_params)
+    latent_states = jax.vmap(encode_state, (0, None, 0, None))(
+        rngs,
+        state_encoder_state,
+        states,
+        state_encoder_params,
+    )
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[:-1])
-    latent_actions = jax.vmap(
-        jax.vmap(encode_action, (0, None, 0, 0, None)), (0, None, 0, 0, None)
-    )(rngs, action_encoder_state, actions, latent_states[:, :-1], action_encoder_params)
+    latent_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
+        rngs,
+        action_encoder_state,
+        actions,
+        latent_states[:-1],
+        action_encoder_params,
+    )
+
+    # Define the loss for one set of neighborhood actions
+    rng, key = jax.random.split(key)
+    last_known_state_i = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+
+    indices = jnp.arange(latent_states.shape[0])
+    known_state_mask = indices < last_known_state_i
+
+    same_actions_mask = known_state_mask[1:]
+    same_actions = einsum(latent_actions, same_actions_mask, "... d, ... -> ... d")
 
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, latent_states.shape[0])
-    losses = jax.vmap(
-        loss_smoothness_one_trajectory,
-        (0, 0, 0),
-    )(rngs, latent_states, latent_actions)
+    rngs = jax.random.split(rng, latent_actions.shape[0])
+    neighborhood_actions = jax.vmap(
+        jax.random.multivariate_normal,
+        (0, 0, None),
+    )(
+        rngs,
+        latent_actions,
+        jnp.eye(latent_actions.shape[-1]),
+    )
+    new_neighborhood_actions = einsum(
+        neighborhood_actions, (1 - same_actions_mask), "... d, ... -> ... d"
+    )
 
-    return jnp.sum(losses)
+    new_action_sequence = same_actions + new_neighborhood_actions
+
+    latent_source_states = latent_states[:-1]
+    known_states = einsum(
+        latent_source_states, known_state_mask[:-1], "... d, ... -> ... d"
+    )
+
+    # Run the neighborhood actions through the transition model
+    rng, key = jax.random.split(key)
+    latent_states_prime = infer_states(
+        rng,
+        transition_state,
+        known_states,
+        new_action_sequence,
+        dt,
+    )
+
+    # Get the ground truth latent states related to the inferred latent states
+    unknown_next_state_mask = 1 - known_state_mask[1:]
+    gt_latent_next_states = latent_states[1:]
+    gt_latent_states = einsum(
+        gt_latent_next_states, unknown_next_state_mask, "... d, ... -> ... d"
+    )
+    # Grab the inferred latent states and not the ones that are masked
+    inferred_latent_states = einsum(
+        latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
+    )
+    # Find the difference between gt and inferred latent states
+    diffs = gt_latent_states - inferred_latent_states
+    # Find the squared magnitude
+    diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+    # Find the deviation from the neighborhood
+    neighborhood_violation = jnp.clip(diff_mag_sq - 1, a_min=0)
+    indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
+    decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
+    bounded_scaled_diffs = (
+        sigmoid(neighborhood_violation) * 2 - 1
+    ) * decreasing_function
+
+    action_smoothness_loss = sigmoid(jnp.sum(bounded_scaled_diffs))
+
+    # Now we will do the same thing but with the latent states
+
+    rng, key = jax.random.split(key)
+    last_known_state_i = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+
+    indices = jnp.arange(latent_states.shape[0])
+    known_state_mask = indices < last_known_state_i
+    known_state_mask = known_state_mask.astype(jnp.float32)
+
+    # Randomize the last state in the neighborhood
+    same_state_mask = known_state_mask[:-1]
+    same_states = einsum(latent_states[:-1], same_state_mask, "... d, ... -> ... d")
+
+    new_state_mask = known_state_mask[:-1] - known_state_mask[1:]
+    state_to_be_randomized = einsum(
+        latent_states[:-1], new_state_mask, "... d, ... -> ... d"
+    )
+    state_to_be_randomized = jnp.sum(state_to_be_randomized, axis=0)
+
+    rng, key = jax.random.split(key)
+    normal = jax.random.normal(
+        rng,
+        state_to_be_randomized.shape,
+    )
+    new_state = state_to_be_randomized + normal
+
+    new_state_sequence = same_states + einsum(
+        new_state, new_state_mask, "d, ... -> ... d"
+    )
+
+    # Run the neighborhood actions through the transition model
+    rng, key = jax.random.split(key)
+    latent_states_prime = infer_states(
+        rng,
+        transition_state,
+        new_state_sequence,
+        latent_actions,
+        dt,
+    )
+
+    # Get the ground truth latent states related to the inferred latent states
+    unknown_next_state_mask = 1 - known_state_mask[1:]
+    gt_latent_states = einsum(
+        latent_states[1:], unknown_next_state_mask, "... d, ... -> ... d"
+    )
+    # Grab the inferred latent states and not the ones that are masked
+    inferred_latent_states = einsum(
+        latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
+    )
+    # Find the difference between gt and inferred latent states
+    diffs = gt_latent_states - inferred_latent_states
+    # Find the squared magnitude
+    diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+    # Find the deviation from the neighborhood
+    neighborhood_violation = jnp.clip(diff_mag_sq - 1, a_min=0)
+    indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
+    decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
+    bounded_scaled_diffs = sigmoid(neighborhood_violation) * decreasing_function
+    state_smoothness_loss = sigmoid(jnp.sum(bounded_scaled_diffs))
+
+    loss = (action_smoothness_loss + state_smoothness_loss) / 2
+
+    return loss
 
 
 def loss_disperse(
@@ -413,113 +360,89 @@ def loss_disperse(
     if action_encoder_params is None:
         action_encoder_params = action_encoder_state.params
 
-    def loss_disperse_one_trajectory(
-        key,
-        latent_states,
-        latent_actions,
-    ):
-        def one_latent_trajectory(key, last_known_state_i):
-            
-            indices = jnp.arange(latent_states.shape[0])
-            known_state_mask = indices < last_known_state_i
-            
-            # Sample random actions at and right before unknown state
-            random_action_mask = 1 - known_state_mask[1:]
-            same_actions = einsum(
-                latent_actions, 1 - random_action_mask, "... d, ... -> ... d"
-            )
-
-            rng, key = jax.random.split(key)
-            uniform_random = (
-                jax.random.uniform(
-                    rng,
-                    (*latent_actions.shape[:-1], action_bounds.shape[0]),
-                )
-                * 2
-                - 1
-            )
-            all_actions_random = einsum(
-                uniform_random, action_bounds, "... d, d -> ... d"
-            )
-
-            rng, key = jax.random.split(key)
-            all_latent_random_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
-                jax.random.split(rng, all_actions_random.shape[0]),
-                action_encoder_state,
-                all_actions_random,
-                latent_states[:-1],
-                action_encoder_params,
-            )
-
-            latent_random_actions = einsum(
-                all_latent_random_actions, random_action_mask, "... d, ... -> ... d"
-            )
-
-            new_action_sequence = same_actions + latent_random_actions
-
-            rng, key = jax.random.split(key)
-            latent_states_prime = infer_states(
-                rng, transition_state, latent_states[:-1], new_action_sequence, dt
-            )
-
-            # Find the difference between gt and inferred latent states
-            unknown_next_state_mask = 1 - known_state_mask[1:]
-            gt_latent_states = einsum(
-                latent_states[1:], unknown_next_state_mask, "... d, ... -> ... d"
-            )
-            inferred_latent_states = einsum(
-                latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
-            )
-            diffs = gt_latent_states - inferred_latent_states
-            # Find the squared magnitude
-            diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
-
-            # Find the deviation from the neighborhood
-            indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
-            decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
-            bounded_scaled_diffs = sigmoid(diff_mag_sq) * decreasing_function
-            bounded_result = sigmoid(jnp.sum(bounded_scaled_diffs))
-            return -bounded_result
-
-        
-        rng, key = jax.random.split(key)
-        random_index = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
-        
-        rng, key = jax.random.split(key)
-        state_dispersion_loss_per_i = one_latent_trajectory(
-            rng, random_index
-        )
-        state_dispersion_loss = jnp.sum(state_dispersion_loss_per_i)
-
-        return state_dispersion_loss
-
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
-    latent_states = jax.vmap(
-        jax.vmap(encode_state, (0, None, 0, None)), (0, None, 0, None)
-    )(rngs, state_encoder_state, states, state_encoder_params)
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, actions.shape[:-1])
-    latent_actions = jax.vmap(
-        jax.vmap(encode_action, (0, None, 0, 0, None)), (0, None, 0, 0, None)
-    )(rngs, action_encoder_state, actions, latent_states[:, :-1], action_encoder_params)
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, latent_states.shape[0])
-    losses = jax.vmap(loss_disperse_one_trajectory, (0, 0, 0))(
+    latent_states = jax.vmap(encode_state, (0, None, 0, None))(
         rngs,
-        latent_states,
-        latent_actions,
+        state_encoder_state,
+        states,
+        state_encoder_params,
     )
 
-    return jnp.sum(losses)
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[:-1])
+    latent_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
+        rngs, action_encoder_state, actions, latent_states[:-1], action_encoder_params
+    )
+
+    rng, key = jax.random.split(key)
+    last_known_state_i = jax.random.randint(rng, (1,), 0, latent_states.shape[0] - 1)
+
+    indices = jnp.arange(latent_states.shape[0])
+    known_state_mask = indices < last_known_state_i
+
+    # Sample random actions at and right before unknown state
+    random_action_mask = 1 - known_state_mask[1:]
+    same_actions = einsum(latent_actions, 1 - random_action_mask, "... d, ... -> ... d")
+
+    rng, key = jax.random.split(key)
+    uniform_random = (
+        jax.random.uniform(
+            rng,
+            (*latent_actions.shape[:-1], action_bounds.shape[0]),
+        )
+        * 2
+        - 1
+    )
+    all_actions_random = einsum(uniform_random, action_bounds, "... d, d -> ... d")
+
+    rng, key = jax.random.split(key)
+    all_latent_random_actions = jax.vmap(encode_action, (0, None, 0, 0, None))(
+        jax.random.split(rng, all_actions_random.shape[0]),
+        action_encoder_state,
+        all_actions_random,
+        latent_states[:-1],
+        action_encoder_params,
+    )
+
+    latent_random_actions = einsum(
+        all_latent_random_actions, random_action_mask, "... d, ... -> ... d"
+    )
+
+    new_action_sequence = same_actions + latent_random_actions
+
+    rng, key = jax.random.split(key)
+    latent_states_prime = infer_states(
+        rng, transition_state, latent_states[:-1], new_action_sequence, dt
+    )
+
+    # Find the difference between gt and inferred latent states
+    unknown_next_state_mask = 1 - known_state_mask[1:]
+    gt_latent_states = einsum(
+        latent_states[1:], unknown_next_state_mask, "... d, ... -> ... d"
+    )
+    inferred_latent_states = einsum(
+        latent_states_prime, unknown_next_state_mask, "... d, ... -> ... d"
+    )
+    diffs = gt_latent_states - inferred_latent_states
+    # Find the squared magnitude
+    diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+
+    # Find the deviation from the neighborhood
+    indices = jnp.cumsum(unknown_next_state_mask.astype(jnp.float32))
+    decreasing_function = 1 / (indices - 0.5) * (unknown_next_state_mask)
+    bounded_scaled_diffs = sigmoid(diff_mag_sq) * decreasing_function
+    state_dispersion_loss = -sigmoid(jnp.sum(bounded_scaled_diffs))
+
+    return state_dispersion_loss
 
 
 def loss_condense(
     key,
     state_encoder_state,
     action_encoder_state,
-    rollout_results,
+    states,
+    actions,
     action_bounds,
     action_encoder_params=None,
 ):
@@ -546,11 +469,7 @@ def loss_condense(
 
         return sigmoid(bounded_diffs_mag_sq) * 2 - 1
 
-    states, actions = rollout_results
-
-    states = states[:, :-1]
-    states = rearrange(states, "r t d -> (r t) d")
-    actions = rearrange(actions, "r t d -> (r t) d")
+    states = states[:-1]
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[:-1])
@@ -567,4 +486,4 @@ def loss_condense(
     rngs = jax.random.split(rng, latent_states.shape[0])
     result = jax.vmap(one_action, (0, 0, 0))(rngs, latent_states, latent_actions)
 
-    return jnp.sum(result)
+    return jnp.sum(result) / latent_states.shape[0]

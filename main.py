@@ -213,8 +213,11 @@ for rollout in range(rollouts):
                 state_decoder_state,
                 action_decoder_state,
             ) = carry
-            
-            rollout_result_batch = (rollout_result_batch[0], rollout_result_batch[1][:, :-1])
+
+            rollout_result_batch = (
+                rollout_result_batch[0],
+                rollout_result_batch[1][:, :-1],
+            )
 
             rng, key = jax.random.split(key)
             (
@@ -236,31 +239,31 @@ for rollout in range(rollouts):
                 dt,
             )
 
-            rng, key = jax.random.split(key)
-            (
-                state_encoder_state,
-                action_encoder_state,
-                transition_model_state,
-                state_decoder_state,
-                action_decoder_state,
-                msg,
-            ) = compute_metrics(
-                rng,
-                state_encoder_state,
-                action_encoder_state,
-                state_decoder_state,
-                action_decoder_state,
-                transition_model_state,
-                rollout_result_batch,
-                action_bounds,
-                dt,
-            )
+            # rng, key = jax.random.split(key)
+            # (
+            #     state_encoder_state,
+            #     action_encoder_state,
+            #     transition_model_state,
+            #     state_decoder_state,
+            #     action_decoder_state,
+            #     msg,
+            # ) = compute_metrics(
+            #     rng,
+            #     state_encoder_state,
+            #     action_encoder_state,
+            #     state_decoder_state,
+            #     action_decoder_state,
+            #     transition_model_state,
+            #     rollout_result_batch,
+            #     action_bounds,
+            #     dt,
+            # )
+            msg = None
 
             # info_msgs = make_info_msgs(loss_infos)
-
-            rng, key = jax.random.split(key)
+            
             return (
-                rng,
+                key,
                 state_encoder_state,
                 action_encoder_state,
                 transition_model_state,
@@ -282,16 +285,27 @@ for rollout in range(rollouts):
             state_dict["state_decoder_state"],
             state_dict["action_decoder_state"],
         )
+        
+        # Do one batch as a test
+        # (
+        #     key,
+        #     state_encoder_state,
+        #     action_encoder_state,
+        #     transition_model_state,
+        #     state_decoder_state,
+        #     action_decoder_state,
+        # ), (msg, loss_infos) = process_batch(init, (rollout_results_batched[0][0], rollout_results_batched[1][0]))
 
         (
+            key,
             state_encoder_state,
             action_encoder_state,
             transition_model_state,
             state_decoder_state,
             action_decoder_state,
-        ), info_msgs = jax.lax.scan(process_batch, init, rollout_results_batched)
+        ), (msg, loss_infos) = jax.lax.scan(process_batch, init, rollout_results_batched)
 
-        final_infos = merge_info_msgs(infos)
+        dump_infos("infos", loss_infos, epoch)
 
         state_dict["state_encoder_state"] = state_encoder_state
         state_dict["action_encoder_state"] = action_encoder_state
