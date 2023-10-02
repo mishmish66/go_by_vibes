@@ -447,7 +447,7 @@ def get_grads(
             rollout_result,
             action_decoder_params,
         )[0]
-        
+
     def state_encoder_loss_for_info(state_encoder_params, key):
         rng, key = jax.random.split(key)
         return state_encoder_loss(
@@ -527,23 +527,23 @@ def get_grads(
     state_encoder_grads = jax.jit(state_encoder_grad_fn)(
         state_encoder_state.params, rng_list.pop()
     )
-    action_encoder_grads = jax.jit(
-        action_encoder_grad_fn
-    )(action_encoder_state.params, rng_list.pop())
-    transition_model_grads = jax.jit(
-        transition_model_grad_fn
-    )(transition_model_state.params, rng_list.pop())
+    action_encoder_grads = jax.jit(action_encoder_grad_fn)(
+        action_encoder_state.params, rng_list.pop()
+    )
+    transition_model_grads = jax.jit(transition_model_grad_fn)(
+        transition_model_state.params, rng_list.pop()
+    )
     state_decoder_grads = jax.jit(state_decoder_grad_fn)(
         state_decoder_state.params, rng_list.pop()
     )
-    action_decoder_grads = jax.jit(
-        action_decoder_grad_fn
-    )(action_decoder_state.params, rng_list.pop())
-    
+    action_decoder_grads = jax.jit(action_decoder_grad_fn)(
+        action_decoder_state.params, rng_list.pop()
+    )
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 5)
     rng_list = list(rngs)
-    
+
     state_encoder_loss_info = jax.jit(state_encoder_loss_for_info)(
         state_encoder_state.params, rng_list.pop()
     )
@@ -559,7 +559,6 @@ def get_grads(
     action_decoder_loss_info = jax.jit(action_decoder_loss_for_info)(
         action_decoder_state.params, rng_list.pop()
     )
-    
 
     return (
         state_encoder_grads,
@@ -767,13 +766,30 @@ def compute_metrics(
     )
 
 
+def make_info_msgs(infos):
+    paths_and_strings = {
+        os.path.join(outer, f"{inner}.txt"): info
+        for outer, inner_info in infos.items()
+        for inner, info in inner_info.items()
+    }
+
+    return paths_and_strings
+
+
+def merge_info_msgs(paths_and_stringses):
+    return {
+        path: sum([paths_and_strings[path] for paths_and_strings in paths_and_stringses])
+        for path in paths_and_stringses[0].keys()
+    }
+
+
 def dump_infos(location, infos, epoch, start_i, end_i):
     paths_and_strings = {
         os.path.join(outer, f"{inner}.txt"): info
         for outer, inner_info in infos.items()
         for inner, info in inner_info.items()
     }
-    
+
     for path, string in paths_and_strings.items():
         filepath = os.path.join(location, path)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)

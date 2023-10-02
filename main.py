@@ -20,7 +20,14 @@ import matplotlib.pyplot as plt
 
 from embeds import EmbeddingLayer
 from rollout import collect_rollout
-from training import create_train_state, train_step, compute_metrics, dump_infos
+from training import (
+    create_train_state,
+    train_step,
+    compute_metrics,
+    dump_infos,
+    make_info_msgs,
+    merge_info_msgs,
+)
 from nets import (
     StateEncoder,
     ActionEncoder,
@@ -174,6 +181,16 @@ for rollout in range(rollouts):
     )
 
     def do_epoch(epoch, key):
+        # (
+        #     epoch,
+        #     state_encoder_state,
+        #     action_encoder_state,
+        #     transition_model_state,
+        #     state_decoder_state,
+        #     action_decoder_state,
+        #     loss_infos,
+        # ) = carry_pack
+
         print(f"Epoch: {epoch}")
 
         # shuffle the data
@@ -183,58 +200,120 @@ for rollout in range(rollouts):
         states = rollout_result[0][indices]
         actions = rollout_result[1][indices]
 
-        start_i = 0
-        while (start_i + minibatch) < states.shape[0]:
-            end_i = start_i + minibatch
+        infos = []
 
-            rollout_result_batch = (
-                states[start_i:end_i],
-                actions[start_i:end_i][..., :-1, :],
+        start_i = 0
+
+        def process_batch(carry, rollout_result_batch):
+            (
+                key,
+                state_encoder_state,
+                action_encoder_state,
+                transition_model_state,
+                state_decoder_state,
+                action_decoder_state,
+            ) = carry
+            
+            rollout_result_batch = (rollout_result_batch[0], rollout_result_batch[1][:, :-1])
+
+            rng, key = jax.random.split(key)
+            (
+                state_encoder_state,
+                action_encoder_state,
+                transition_model_state,
+                state_decoder_state,
+                action_decoder_state,
+                loss_infos,
+            ) = jax.jit(train_step)(
+                rng,
+                state_encoder_state,
+                action_encoder_state,
+                state_decoder_state,
+                action_decoder_state,
+                transition_model_state,
+                rollout_result_batch,
+                action_bounds,
+                dt,
             )
 
             rng, key = jax.random.split(key)
             (
-                state_dict["state_encoder_state"],
-                state_dict["action_encoder_state"],
-                state_dict["transition_model_state"],
-                state_dict["state_decoder_state"],
-                state_dict["action_decoder_state"],
-                loss_infos,
-            ) = jax.jit(train_step)(
+                state_encoder_state,
+                action_encoder_state,
+                transition_model_state,
+                state_decoder_state,
+                action_decoder_state,
+                msg,
+            ) = compute_metrics(
                 rng,
-                state_dict["state_encoder_state"],
-                state_dict["action_encoder_state"],
-                state_dict["state_decoder_state"],
-                state_dict["action_decoder_state"],
-                state_dict["transition_model_state"],
+                state_encoder_state,
+                action_encoder_state,
+                state_decoder_state,
+                action_decoder_state,
+                transition_model_state,
                 rollout_result_batch,
                 action_bounds,
                 dt,
             )
+
+            # info_msgs = make_info_msgs(loss_infos)
 
             rng, key = jax.random.split(key)
-            metrics_result = compute_metrics(
+            return (
                 rng,
-                state_dict["state_encoder_state"],
-                state_dict["action_encoder_state"],
-                state_dict["state_decoder_state"],
-                state_dict["action_decoder_state"],
-                state_dict["transition_model_state"],
-                rollout_result_batch,
-                action_bounds,
-                dt,
-            )
-            
-            dump_infos("infos", loss_infos, epoch, start_i, start_i + minibatch)
+                state_encoder_state,
+                action_encoder_state,
+                transition_model_state,
+                state_decoder_state,
+                action_decoder_state,
+            ), (msg, loss_infos)
 
-            print(metrics_result[-1])
+        states_batched = einops.rearrange(states, "(b r) t d -> b r t d", b=minibatch)
+        actions_batched = einops.rearrange(actions, "(b r) t d -> b r t d", b=minibatch)
 
-            start_i += minibatch
+        rollout_results_batched = (states_batched, actions_batched)
 
-        jax.profiler.save_device_memory_profile("memory.prof")
+        rng, key = jax.random.split(key)
+        init = (
+            rng,
+            state_dict["state_encoder_state"],
+            state_dict["action_encoder_state"],
+            state_dict["transition_model_state"],
+            state_dict["state_decoder_state"],
+            state_dict["action_decoder_state"],
+        )
+
+        (
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+        ), info_msgs = jax.lax.scan(process_batch, init, rollout_results_batched)
+
+        final_infos = merge_info_msgs(infos)
+
+        state_dict["state_encoder_state"] = state_encoder_state
+        state_dict["action_encoder_state"] = action_encoder_state
+        state_dict["transition_model_state"] = transition_model_state
+        state_dict["state_decoder_state"] = state_decoder_state
+        state_dict["action_decoder_state"] = action_decoder_state
+
+        # return (
+        #     epoch + 1,
+        #     state_encoder_state,
+        #     action_encoder_state,
+        #     transition_model_state,
+        #     state_decoder_state,
+        #     action_decoder_state,
+        #     final_infos,
+        # )
+
+        # jax.profiler.save_device_memory_profile("memory.prof")
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, epochs)
+
     for i in range(epochs):
         do_epoch(i, rngs[i])
 
