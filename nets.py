@@ -241,7 +241,6 @@ class TransitionModel(nn.Module):
                 actions = self.action_t_layers[i]["CA"](actions, states)
                 actions = self.action_t_layers[i]["SA"](actions, actions)
 
-
         # Rescale states to original dim
         states = self.state_condenser(states)
         x_mean = states[..., :encoded_state_dim]
@@ -340,6 +339,12 @@ def get_state_space_gaussian(
         latent_state,
     )
 
+    # Clamp the variance to at least 1e-6
+    clamped_variance = jnp.clip(state_gaussian[..., encoded_state_dim:], 1e-6, None)
+    state_gaussian = jnp.concatenate(
+        [state_gaussian[..., :encoded_state_dim], clamped_variance], axis=-1
+    )
+
     return state_gaussian
 
 
@@ -358,6 +363,12 @@ def get_action_space_gaussian(
         latent_state,
     )
 
+    # Clamp the variance to at least 1e-6
+    clamped_variance = jnp.clip(action_gaussian[..., encoded_action_dim:], 1e-6, None)
+    action_gaussian = jnp.concatenate(
+        [action_gaussian[..., :encoded_action_dim], clamped_variance], axis=-1
+    )
+
     return action_gaussian
 
 
@@ -371,7 +382,7 @@ def infer_states(
 ):
     if transition_model_params is None:
         transition_model_params = transition_model_state.params
-    
+
     rng, key = jax.random.split(key)
 
     inferred_state_gaussians = transition_model_state.apply_fn(

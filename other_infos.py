@@ -36,6 +36,11 @@ def make_other_infos(
         rngs, state_encoder_state, states
     )
 
+    # This next part is just for debugging and you should delete soon
+    latent_state_gaussian_params = jax.vmap(state_encoder_state.apply_fn, (None, 0))(
+        {"params": state_encoder_state.params}, states
+    )
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[0])
     latent_actions = jax.vmap(encode_action, in_axes=(0, None, 0, 0))(
@@ -78,14 +83,20 @@ def make_other_infos(
     reconstructed_states_prime = jax.vmap(sample_gaussian, in_axes=(0, 0))(
         rngs, state_space_gaussians_prime
     )
+    
+    state_reconstruction_diffs = reconstructed_states - states
+    
+    latent_state_gaussian_vars = latent_state_gaussian_params[..., encoded_state_dim:]
 
     return {
-        "mean_state": jnp.mean(states, axis=-1),
-        "mean_action": jnp.mean(actions, axis=-1),
-        "mean_latent_state": jnp.mean(latent_states, axis=-1),
-        "mean_latent_action": jnp.mean(latent_actions, axis=-1),
-        "mean_latent_state_prime": jnp.mean(latent_states_prime, axis=-1),
-        "mean_reconstructed_state": jnp.mean(reconstructed_states, axis=-1),
-        "mean_reconstructed_action": jnp.mean(reconstructed_actions, axis=-1),
-        "mean_reconstructed_state_prime": jnp.mean(reconstructed_states_prime, axis=-1),
+        "mean_state_reconstruction_diffs_mag": jnp.mean(jnp.abs(state_reconstruction_diffs), axis=-1),
+        "mean_state_mag": jnp.mean(jnp.abs(states), axis=-1),
+        "mean_action_mag": jnp.mean(jnp.abs(actions), axis=-1),
+        "mean_latent_state_mag": jnp.mean(jnp.abs(latent_states), axis=-1),
+        "min_latent_state_gauss_var_mag": jnp.min(latent_state_gaussian_vars, axis=-1),
+        "mean_latent_action_mag": jnp.mean(jnp.abs(latent_actions), axis=-1),
+        "mean_latent_state_prime_mag": jnp.mean(jnp.abs(latent_states_prime), axis=-1),
+        "mean_reconstructed_state_mag": jnp.mean(jnp.abs(reconstructed_states), axis=-1),
+        "mean_reconstructed_action_mag": jnp.mean(jnp.abs(reconstructed_actions), axis=-1),
+        "mean_reconstructed_state_prime_mag": jnp.mean(jnp.abs(reconstructed_states_prime), axis=-1),
     }

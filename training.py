@@ -80,7 +80,7 @@ def create_train_state(module, dims, rng, learning_rate, other={}):
     params = module.init(rng, *dummy, **other)[
         "params"
     ]  # initialize parameters by passing a template image
-    tx = optax.lion(learning_rate)
+    tx = optax.adamw(learning_rate)
     return TrainState.create(
         apply_fn=module.apply, params=params, tx=tx, metrics=Metrics.empty()
     )
@@ -136,7 +136,7 @@ def state_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    smoothness_loss_per_traj = jax.vmap(
+    smoothness_loss_per_traj = 0 * jax.vmap(
         multiloss(loss_smoothness, 4), (0, None, None, None, 0, 0, None, None)
     )(
         rngs,
@@ -240,7 +240,7 @@ def action_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    smoothness_loss_per_traj = jax.vmap(
+    smoothness_loss_per_traj = 0 * jax.vmap(
         multiloss(loss_smoothness, 4), (0, None, None, None, 0, 0, None, None, None)
     )(
         rngs,
@@ -276,7 +276,7 @@ def action_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    condensation_loss_per_traj = jax.vmap(
+    condensation_loss_per_traj = 0 * jax.vmap(
         multiloss(loss_condense, 4), (0, None, None, 0, 0, None, None)
     )(
         rngs,
@@ -591,6 +591,12 @@ def train_step(
         dt,
     )
 
+    def grad_norm(grad):
+        jnp.linalg.norm(grad.flatten())
+
+    def grad_max(grad):
+        jnp.max(grad.flatten())
+
     # def process_grad(grad):
     #     # Clip norm of grads to be 1.0
     #     norm = jnp.linalg.norm(grad)
@@ -607,6 +613,18 @@ def train_step(
     # transition_model_grads = jax.tree_map(process_grad, transition_model_grads)
     # state_decoder_grads = jax.tree_map(process_grad, state_decoder_grads)
     # action_decoder_grads = jax.tree_map(process_grad, action_decoder_grads)
+
+    def grad_to_list(grad):
+        return [e for bk in list(grad.values()) for e in bk.values()]
+
+    state_encoder_flat_grads = jax.tree_map(
+        jnp.ravel, grad_to_list(state_encoder_grads)
+    )
+    state_encoder_grad_max = jax.tree_map(jnp.max, grad_to_list(state_encoder_grads))
+
+    state_encoder_flat_grad = jnp.concatenate(state_encoder_flat_grads)
+    state_encoder_grad_norm = jnp.linalg.norm(state_encoder_flat_grad)
+    state_encoder_grad_max = jnp.max(jnp.array(state_encoder_grad_max))
 
     state_encoder_state = state_encoder_state.apply_gradients(grads=state_encoder_grads)
     action_encoder_state = action_encoder_state.apply_gradients(
@@ -637,7 +655,14 @@ def train_step(
         dt,
     )
 
-    loss_infos = {"other_infos": other_infos, **loss_infos}
+    loss_infos = {
+        "other_infos": {
+            "state_encoder_grad_norm": state_encoder_grad_norm,
+            "state_encoder_grad_max": state_encoder_grad_max,
+            **other_infos,
+        },
+        **loss_infos,
+    }
 
     return (
         state_encoder_state,

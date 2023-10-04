@@ -165,13 +165,12 @@ def loss_reconstruction(
         (0, 0),
     )(action_space_gaussians, actions)
 
-    bounded_scaled_state_probs = (sigmoid(state_probs) * 2 - 1) / states.shape[0]
-    bounded_scaled_action_probs = (sigmoid(action_probs) * 2 - 1) / actions.shape[0]
+    scaled_state_probs = state_probs / states.shape[0]
+    scaled_action_probs = action_probs / actions.shape[0]
 
-    return -(
-        jnp.sum(bounded_scaled_state_probs) / states.shape[0]
-        + jnp.sum(bounded_scaled_action_probs) / actions.shape[0]
-    )
+    # jax.debug.print("state_prob 0: {}", state_probs[0]) I realize now that the logpdf is negative, I am silly
+
+    return -jnp.sum(scaled_state_probs) - jnp.sum(scaled_action_probs)
 
 
 # Continuity loss idea:
