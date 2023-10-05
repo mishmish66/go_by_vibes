@@ -104,7 +104,7 @@ def state_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    forward_loss_per_traj = jax.vmap(
+    forward_loss_per_traj = 0 * jax.vmap(
         multiloss(loss_forward, 4), (0, None, None, None, 0, 0, None, None)
     )(
         rngs,
@@ -205,7 +205,7 @@ def action_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[0])
-    forward_loss_per_env = jax.vmap(
+    forward_loss_per_env = 0 * jax.vmap(
         multiloss(loss_forward, 4), (0, None, None, None, 0, 0, None, None, None)
     )(
         rngs,
@@ -334,7 +334,7 @@ def transition_model_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    forward_loss_per_traj = jax.vmap(
+    forward_loss_per_traj = 0 * jax.vmap(
         multiloss(loss_forward, 4), (0, None, None, None, 0, 0, None, None, None, None)
     )(
         rngs,

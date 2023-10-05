@@ -372,6 +372,39 @@ def get_action_space_gaussian(
     return action_gaussian
 
 
+def get_next_state_space_gaussians(
+    transition_model_state,
+    latent_states,
+    latent_actions,
+    dt,
+    transition_model_params=None,
+):
+    if transition_model_params is None:
+        transition_model_params = transition_model_state.params
+        
+    # jax.debug.print("latent_states: {}", latent_states)
+    # jax.debug.print("latent_actions: {}", latent_actions)
+
+    next_state_gaussian = transition_model_state.apply_fn(
+        {"params": transition_model_params},
+        latent_states,
+        latent_actions,
+        jnp.arange(latent_actions.shape[0]) * dt,
+    )
+    
+    # jax.debug.print("next state gaussian: {}", next_state_gaussian)
+
+    # Clamp the variance to at least 1e-6
+    clamped_variance = jnp.clip(
+        next_state_gaussian[..., encoded_state_dim:], 1e-6, None
+    )
+    next_state_gaussian = jnp.concatenate(
+        [next_state_gaussian[..., :encoded_state_dim], clamped_variance], axis=-1
+    )
+
+    return next_state_gaussian
+
+
 def infer_states(
     key,
     transition_model_state,
@@ -385,11 +418,12 @@ def infer_states(
 
     rng, key = jax.random.split(key)
 
-    inferred_state_gaussians = transition_model_state.apply_fn(
-        {"params": transition_model_params},
+    inferred_state_gaussians = get_next_state_space_gaussians(
+        transition_model_state,
         latent_states,
         latent_actions,
-        jnp.arange(latent_actions.shape[0]) * dt,
+        dt,
+        transition_model_params,
     )
 
     # jax.debug.print("NaN in inferred_state_gaussians: {}", jnp.isnan(inferred_state_gaussians).any())

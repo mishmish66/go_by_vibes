@@ -151,10 +151,10 @@ rngs = jax.random.split(rng, start_q.shape[:-1])
 
 rollout_result = None
 
-rollouts = 1024
-trajectories_per_rollout = 1024
-epochs = 1024
-minibatch = 64
+rollouts = 2 # 1024
+trajectories_per_rollout = 4 # 1024
+epochs = 2 # 1024
+minibatch = 2
 
 state_dict = {
     "state_encoder_state": state_encoder_state,

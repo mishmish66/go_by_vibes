@@ -17,6 +17,7 @@ from nets import (
     encode_state_action,
     get_state_space_gaussian,
     get_action_space_gaussian,
+    get_next_state_space_gaussians,
 )
 
 
@@ -80,10 +81,7 @@ def loss_forward(
     known_states = einsum(
         latent_states[:-1], known_state_mask[:-1], "... d, ... -> ... d"
     )
-    rng, key = jax.random.split(key)
-    # jax.debug.print("Infer states!")
-    latent_states_prime = infer_states(
-        rng,
+    latent_state_prime_gaussians = get_next_state_space_gaussians(
         transition_state,
         known_states,
         latent_actions,
@@ -91,8 +89,8 @@ def loss_forward(
         transition_params,
     )
 
-    inferred_states = einsum(
-        latent_states_prime, (1 - known_state_mask)[1:], "... d, ... -> ... d"
+    inferred_state_gaussians = einsum(
+        latent_state_prime_gaussians, (1 - known_state_mask)[1:], "... d, ... -> ... d"
     )
     gt_states = einsum(
         latent_states[1:], (1 - known_state_mask)[1:], "... d, ... -> ... d"
@@ -101,12 +99,15 @@ def loss_forward(
     indices = jnp.cumsum((1 - known_state_mask)[1:].astype(jnp.float32), axis=0) - 0.5
     decreasing_function = 1 / ((indices - 0.5) * (1 - known_state_mask)[1:] + 1)
 
-    diffs = gt_states - inferred_states
-    diff_mag_sq = einsum(diffs, diffs, "... d, ... d -> ...")
+    log_probs = jax.vmap(eval_log_gaussian, (0, 0))(inferred_state_gaussians, gt_states)
+    
+    # jax.debug.print("gauss 0: {}", inferred_state_gaussians[0])
+    # jax.debug.print("log prob 0: {}", log_probs[0])
 
-    bounded_diff_mag_sq = sigmoid(diff_mag_sq * decreasing_function) * 2 - 1
+    # bounded_diff_mag_sq = sigmoid(diff_mag_sq * decreasing_function) * 2 - 1
+    scaled_log_probs = log_probs * decreasing_function
 
-    return jnp.sum(bounded_diff_mag_sq) / inferred_states.shape[0]
+    return jnp.mean(scaled_log_probs)
 
 
 def loss_reconstruction(
