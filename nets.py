@@ -32,18 +32,52 @@ def sample_gaussian(key, gaussian):
     return result
 
 
-class StateEncoder(nn.Module):
-    @nn.compact
+class FreqLayer(nn.Module):
+    out_dim: jax.Array
+
+    def setup(self):
+        pass
+
     def __call__(self, x) -> Any:
-        x = nn.Dense(128, name="FC1")(x)
-        x = nn.relu(x)
-        x = nn.Dense(128, name="FC2")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC3")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC4")(x)
-        x = nn.relu(x)
-        x = nn.Dense(encoded_state_dim * 2, name="FC5")(x)
+        d = x.shape[-1]
+        per_dim = (((self.out_dim // d) + 1) // 2) + 1
+        indices = jnp.arange(per_dim)
+        freq_factor = 5 / jnp.power(1e4, 2 * indices / d)
+        operands = einsum(x, freq_factor, "d, w -> w d")
+        sins = jnp.sin(operands)
+        cosines = jnp.cos(operands)
+
+        freq_result = rearrange([sins, cosines], "f w d -> (d f w)")
+        sliced_freq_result = freq_result[: self.out_dim]
+
+        return sliced_freq_result
+
+
+class StateEncoder(nn.Module):
+    def setup(self):
+        self.freq_layer = FreqLayer(out_dim=128)
+
+        self.dense_layers = [
+            nn.Dense(dim, name=f"FC{i}")
+            for i, dim in enumerate(
+                [
+                    128,
+                    128,
+                    # 128,
+                    # 64,
+                    encoded_state_dim * 2,
+                ]
+            )
+        ]
+
+    def __call__(self, x) -> Any:
+        x = self.freq_layer(x)
+
+        for layer in self.dense_layers[:-1]:
+            x = layer(x)
+            x = nn.relu(x)
+
+        x = self.dense_layers[-1](x)
         x_mean = x[..., :encoded_state_dim]
         x_std = x[..., encoded_state_dim:]
         x_std = nn.softplus(x_std)
@@ -58,10 +92,10 @@ class StateDecoder(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(128, name="FC2")(x)
         x = nn.relu(x)
-        x = nn.Dense(64, name="FC3")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC4")(x)
-        x = nn.relu(x)
+        # x = nn.Dense(64, name="FC3")(x)
+        # x = nn.relu(x)
+        # x = nn.Dense(64, name="FC4")(x)
+        # x = nn.relu(x)
         x = nn.Dense(28, name="FC5")(x)
         x_mean = x[..., :14]
         x_std = x[..., 14:]
@@ -71,18 +105,33 @@ class StateDecoder(nn.Module):
 
 
 class ActionEncoder(nn.Module):
-    @nn.compact
-    def __call__(self, latent_action, latent_state) -> Any:
-        x = jnp.concatenate([latent_action, latent_state], axis=-1)
-        x = nn.Dense(128, name="FC1")(x)
-        x = nn.relu(x)
-        x = nn.Dense(128, name="FC2")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC3")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC4")(x)
-        x = nn.relu(x)
-        x = nn.Dense(encoded_action_dim * 2, name="FC5")(x)
+    def setup(self):
+        self.freq_layer = FreqLayer(out_dim=256)
+
+        self.dense_layers = [
+            nn.Dense(dim, name=f"FC{i}")
+            for i, dim in enumerate(
+                [
+                    128,
+                    128,
+                    # 128,
+                    # 64,
+                    encoded_action_dim * 2,
+                ]
+            )
+        ]
+
+    def __call__(self, action, latent_state) -> Any:
+        x = jnp.concatenate([action, latent_state], axis=-1)
+
+        x = self.freq_layer(x)
+
+        for layer in self.dense_layers[:-1]:
+            x = layer(x)
+            x = nn.relu(x)
+
+        x = self.dense_layers[-1](x)
+
         x_mean = x[..., :encoded_action_dim]
         x_std = x[..., encoded_action_dim:]
         x_std = nn.softplus(x_std)
@@ -98,10 +147,10 @@ class ActionDecoder(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(128, name="FC2")(x)
         x = nn.relu(x)
-        x = nn.Dense(64, name="FC3")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC4")(x)
-        x = nn.relu(x)
+        # x = nn.Dense(64, name="FC3")(x)
+        # x = nn.relu(x)
+        # x = nn.Dense(64, name="FC4")(x)
+        # x = nn.relu(x)
         x = nn.Dense(8, name="FC5")(x)
         x_mean = x[..., :4]
         x_std = x[..., 4:]
@@ -212,13 +261,13 @@ class TransitionModel(nn.Module):
 
     def __call__(
         self,
-        states,
-        actions,
+        latent_states,
+        latent_actions,
         times,
     ) -> Any:
         # Upscale actions and states to latent dim
-        states = self.state_expander(states)
-        actions = self.action_expander(actions)
+        states = self.state_expander(latent_states)
+        actions = self.action_expander(latent_actions)
 
         # Apply temporal encodings
         states = jax.vmap(self.temporal_encoder, (0, 0))(
@@ -242,9 +291,9 @@ class TransitionModel(nn.Module):
                 actions = self.action_t_layers[i]["SA"](actions, actions)
 
         # Rescale states to original dim
-        states = self.state_condenser(states)
-        x_mean = states[..., :encoded_state_dim]
-        x_std = nn.softplus(states[..., encoded_state_dim:])
+        latent_states_prime = self.state_condenser(states)
+        x_mean = latent_states_prime[..., :encoded_state_dim]
+        x_std = nn.softplus(latent_states_prime[..., encoded_state_dim:])
 
         x = jnp.concatenate([x_mean, x_std], axis=-1)
 

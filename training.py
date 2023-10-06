@@ -181,7 +181,7 @@ def state_encoder_loss(
     # )
 
     shaped_sigmoid_reconstruction_loss = 1 / (
-        1 + jnp.exp(100 * (reconstruction_loss + 25))
+        1 + jnp.exp(reconstruction_loss + 10)
     )
 
     gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
@@ -843,7 +843,9 @@ def merge_info_msgs(paths_and_stringses):
     }
 
 
+# def dump_infos(location, infos, rollout):
 def dump_infos(location, infos, rollout):
+    # print(f"Dumping infos rollout: {rollout}")
     if not isinstance(infos, dict):
         data = infos
         filepath = f"{location}.txt"
