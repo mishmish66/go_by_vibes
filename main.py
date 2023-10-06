@@ -41,6 +41,10 @@ from policy import max_dist_policy, random_policy
 
 import timeit
 
+import os
+
+from contextlib import redirect_stdout
+
 shutil.rmtree("infos", ignore_errors=True)
 
 # Generate random key
@@ -94,11 +98,11 @@ state_decoder = StateDecoder()
 action_decoder = ActionDecoder()
 
 rng, key = jax.random.split(key)
-state_encoder_state = create_train_state(state_encoder, [14], rng, learning_rate=1e-4)
+state_encoder_state = create_train_state(state_encoder, [14], rng, learning_rate=1e-5)
 
 rng, key = jax.random.split(key)
 action_encoder_state = create_train_state(
-    action_encoder, [4, encoded_state_dim], rng, learning_rate=2.5e-4
+    action_encoder, [4, encoded_state_dim], rng, learning_rate=1e-5
 )
 
 rng, key = jax.random.split(key)
@@ -106,17 +110,17 @@ transition_model_state = create_train_state(
     transition_model,
     [(16, encoded_state_dim), (16, encoded_action_dim), (16,)],
     rng,
-    learning_rate=1e-4,
+    learning_rate=1e-5,
 )
 
 rng, key = jax.random.split(key)
 state_decoder_state = create_train_state(
-    state_decoder, [encoded_state_dim], rng, learning_rate=1e-2
+    state_decoder, [encoded_state_dim], rng, learning_rate=1e-5
 )
 
 rng, key = jax.random.split(key)
 action_decoder_state = create_train_state(
-    action_decoder, [encoded_action_dim, encoded_state_dim], rng, learning_rate=1e-2
+    action_decoder, [encoded_action_dim, encoded_state_dim], rng, learning_rate=1e-5
 )
 
 action_bounds = jnp.array([0.5, 0.5, 0.5, 0.5])
@@ -151,6 +155,8 @@ rngs = jax.random.split(rng, start_q.shape[:-1])
 
 rollout_result = None
 
+jax_log_path = "infos/jax_log.txt"
+
 rollouts = 1024
 trajectories_per_rollout = 1024
 epochs = 16
@@ -179,22 +185,20 @@ for rollout in range(rollouts):
         int(total_time / dt),
         rngs,
     )
-    
+
     # from jax import config
     # config.update("jax_disable_jit", True)
 
-    def do_epoch(epoch, rollout, key):
-        # (
-        #     epoch,
-        #     state_encoder_state,
-        #     action_encoder_state,
-        #     transition_model_state,
-        #     state_decoder_state,
-        #     action_decoder_state,
-        #     loss_infos,
-        # ) = carry_pack
-
-        print(f"Rollout {rollout} Epoch: {epoch}")
+    def do_epoch(carry_pack, _):
+        (
+            key,
+            epoch,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+        ) = carry_pack
 
         # shuffle the data
         rng, key = jax.random.split(key)
@@ -264,7 +268,7 @@ for rollout in range(rollouts):
             msg = None
 
             # info_msgs = make_info_msgs(loss_infos)
-            
+
             return (
                 key,
                 state_encoder_state,
@@ -282,29 +286,31 @@ for rollout in range(rollouts):
         rng, key = jax.random.split(key)
         init = (
             rng,
-            state_dict["state_encoder_state"],
-            state_dict["action_encoder_state"],
-            state_dict["transition_model_state"],
-            state_dict["state_decoder_state"],
-            state_dict["action_decoder_state"],
-        )
-
-        (
-            key,
             state_encoder_state,
             action_encoder_state,
             transition_model_state,
             state_decoder_state,
             action_decoder_state,
-        ), (msg, loss_infos) = jax.lax.scan(process_batch, init, rollout_results_batched)
-        
+        )
+
+        (
+            _,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+        ), (msg, loss_infos) = jax.lax.scan(
+            process_batch, init, rollout_results_batched
+        )
+
         # Pretend to scan
         # carry = init
         # y = []
         # for i in range(rollout_results_batched[0].shape[0]):
         #     carry, this_y = process_batch(carry, (rollout_results_batched[0][i], rollout_results_batched[1][i]))
         #     y.append(this_y)
-        
+
         # y = jax.tree_util.tree_map(lambda *args: jnp.stack(args, axis=0), *y)
         # msg, loss_infos = y
         # (
@@ -317,13 +323,23 @@ for rollout in range(rollouts):
         # ) = carry
         # End pretend scan
 
-        dump_infos("infos", loss_infos, epoch, rollout)
+        # dump_infos("infos", loss_infos, epoch, rollout)
 
-        state_dict["state_encoder_state"] = state_encoder_state
-        state_dict["action_encoder_state"] = action_encoder_state
-        state_dict["transition_model_state"] = transition_model_state
-        state_dict["state_decoder_state"] = state_decoder_state
-        state_dict["action_decoder_state"] = action_decoder_state
+        # state_dict["state_encoder_state"] = state_encoder_state
+        # state_dict["action_encoder_state"] = action_encoder_state
+        # state_dict["transition_model_state"] = transition_model_state
+        # state_dict["state_decoder_state"] = state_decoder_state
+        # state_dict["action_decoder_state"] = action_decoder_state
+
+        return (
+            key,
+            epoch + 1,
+            state_encoder_state,
+            action_encoder_state,
+            transition_model_state,
+            state_decoder_state,
+            action_decoder_state,
+        ), loss_infos
 
         # return (
         #     epoch + 1,
@@ -340,8 +356,45 @@ for rollout in range(rollouts):
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, epochs)
 
-    for i in range(epochs):
-        do_epoch(i, rollout, rngs[i])
+    # for i in range(epochs):
+    #     do_epoch(i, rollout, rngs[i])
+
+    rng, key = jax.random.split(key)
+    init = (
+        rng,
+        0,
+        state_dict["state_encoder_state"],
+        state_dict["action_encoder_state"],
+        state_dict["transition_model_state"],
+        state_dict["state_decoder_state"],
+        state_dict["action_decoder_state"],
+    )
+    
+    
+
+    print(f"Rollout {rollout}")
+
+    os.makedirs(os.path.dirname(jax_log_path), exist_ok=True)
+    with open(jax_log_path, "a") as f:
+        with redirect_stdout(f):
+            (
+                _,
+                _,
+                state_encoder_state,
+                action_encoder_state,
+                transition_model_state,
+                state_decoder_state,
+                action_decoder_state,
+            ), infos = jax.lax.scan(do_epoch, init, None, length=epochs)
+    
+    dump_infos("infos", infos, rollout)
+    
+    # update dict
+    state_dict["state_encoder_state"] = state_encoder_state
+    state_dict["action_encoder_state"] = action_encoder_state
+    state_dict["transition_model_state"] = transition_model_state
+    state_dict["state_decoder_state"] = state_decoder_state
+    state_dict["action_decoder_state"] = action_decoder_state
 
 
 jax.debug.print("Done!")

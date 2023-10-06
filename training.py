@@ -81,7 +81,7 @@ def create_train_state(module, dims, rng, learning_rate, other={}):
     params = module.init(rng, *dummy, **other)[
         "params"
     ]  # initialize parameters by passing a template image
-    tx = optax.adamw(learning_rate)
+    tx = optax.lion(learning_rate)
     return TrainState.create(
         apply_fn=module.apply, params=params, tx=tx, metrics=Metrics.empty()
     )
@@ -843,18 +843,19 @@ def merge_info_msgs(paths_and_stringses):
     }
 
 
-def dump_infos(location, infos, epoch, rollout):
+def dump_infos(location, infos, rollout):
     if not isinstance(infos, dict):
         data = infos
         filepath = f"{location}.txt"
 
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "a") as f:
-            for batch_i in range(data.shape[0]):
-                data_mean = jnp.mean(data[batch_i])
-                num_string = f"{data_mean:.16f}"[:12]
-                string_to_add = f"{num_string}\t\tRollout {rollout}, Epoch {epoch}, Batch {batch_i}\n"
-                f.write(string_to_add)
+            for epoch_i in range(data.shape[0]):
+                for batch_i in range(data.shape[1]):
+                    data_mean = jnp.mean(data[epoch_i, batch_i, ...])
+                    num_string = f"{data_mean:.16f}"[:12]
+                    string_to_add = f"{num_string}\t\tRollout {rollout}, Epoch {epoch_i}, Batch {batch_i}\n"
+                    f.write(string_to_add)
     else:
         for sub_folder_name, info in infos.items():
-            dump_infos(os.path.join(location, sub_folder_name), info, epoch, rollout)
+            dump_infos(os.path.join(location, sub_folder_name), info, rollout)
