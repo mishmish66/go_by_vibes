@@ -348,6 +348,27 @@ def get_state_space_gaussian(
     return state_gaussian
 
 
+def decode_state(
+    key,
+    state_decoder_state,
+    latent_state,
+    state_decoder_params=None,
+):
+    if state_decoder_params is None:
+        state_decoder_params = state_decoder_state.params
+
+    state_space_gaussian = get_state_space_gaussian(
+        state_decoder_state,
+        latent_state,
+        state_decoder_params,
+    )
+
+    rng, key = jax.random.split(key)
+    state = sample_gaussian(rng, state_space_gaussian)
+
+    return state
+
+
 def get_action_space_gaussian(
     action_decoder_state,
     latent_action,
@@ -372,6 +393,29 @@ def get_action_space_gaussian(
     return action_gaussian
 
 
+def decode_action(
+    key,
+    action_decoder_state,
+    latent_action,
+    latent_state,
+    action_decoder_params=None,
+):
+    if action_decoder_params is None:
+        action_decoder_params = action_decoder_state.params
+
+    action_space_gaussian = get_action_space_gaussian(
+        action_decoder_state,
+        latent_action,
+        latent_state,
+        action_decoder_params,
+    )
+
+    rng, key = jax.random.split(key)
+    action = sample_gaussian(rng, action_space_gaussian)
+
+    return action
+
+
 def get_next_state_space_gaussians(
     transition_model_state,
     latent_states,
@@ -381,7 +425,7 @@ def get_next_state_space_gaussians(
 ):
     if transition_model_params is None:
         transition_model_params = transition_model_state.params
-        
+
     # jax.debug.print("latent_states: {}", latent_states)
     # jax.debug.print("latent_actions: {}", latent_actions)
 
@@ -391,13 +435,11 @@ def get_next_state_space_gaussians(
         latent_actions,
         jnp.arange(latent_actions.shape[0]) * dt,
     )
-    
+
     # jax.debug.print("next state gaussian: {}", next_state_gaussian)
 
     # Clamp the variance to at least 1e-6
-    clamped_variance = jnp.clip(
-        next_state_gaussian[..., encoded_state_dim:], 1e-6, None
-    )
+    clamped_variance = next_state_gaussian[..., encoded_state_dim:] + 1e-6
     next_state_gaussian = jnp.concatenate(
         [next_state_gaussian[..., :encoded_state_dim], clamped_variance], axis=-1
     )

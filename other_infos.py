@@ -99,23 +99,35 @@ def make_other_infos(
     )
 
     return {
-        "mean_state_reconstruction_diffs_mag": jnp.mean(
-            jnp.abs(state_reconstruction_diffs), axis=-1
-        ),
-        "mean_state_mag": jnp.mean(jnp.abs(states), axis=-1),
-        "mean_action_mag": jnp.mean(jnp.abs(actions), axis=-1),
-        "mean_latent_state_mag": jnp.mean(jnp.abs(latent_states), axis=-1),
-        "min_latent_state_gauss_var_mag": jnp.min(latent_state_gaussian_vars, axis=-1),
-        "mean_latent_action_mag": jnp.mean(jnp.abs(latent_actions), axis=-1),
-        "mean_latent_state_prime_mag": jnp.mean(jnp.abs(latent_states_prime), axis=-1),
-        "mean_reconstructed_state_mag": jnp.mean(
-            jnp.abs(reconstructed_states), axis=-1
-        ),
-        "mean_reconstructed_action_mag": jnp.mean(
-            jnp.abs(reconstructed_actions), axis=-1
-        ),
-        "mean_reconstructed_state_prime_mag": jnp.mean(
-            jnp.abs(reconstructed_states_prime), axis=-1
-        ),
-        "one_of_next_latent_state_gaussian_params": one_of_next_latent_state_gaussian_params,
+        "forward": {
+            "one_of_next_latent_state_gaussian_params": one_of_next_latent_state_gaussian_params,
+            "mean_latent_state_prime_mag": jnp.mean(
+                jnp.abs(latent_states_prime), axis=-1
+            ),
+            "mean_reconstructed_state_prime_mag": jnp.mean(
+                jnp.abs(reconstructed_states_prime), axis=-1
+            ),
+        },
+        "state": {
+            "mean_state_reconstruction_diffs_mag": jnp.mean(
+                jnp.abs(state_reconstruction_diffs), axis=-1
+            ),
+            "mean_state_mag": jnp.mean(jnp.abs(states), axis=-1),
+            "mean_latent_state_mag": jnp.mean(jnp.abs(latent_states), axis=-1),
+            "min_latent_state_gauss_var_mag": jnp.min(
+                latent_state_gaussian_vars, axis=-1
+            ),
+        },
+        "action": {
+            "mean_latent_action_mag": jnp.mean(
+                jnp.abs(latent_actions[:encoded_action_dim]), axis=-1
+            ),
+            "mean_action_mag": jnp.mean(jnp.abs(actions), axis=-1),
+            "mean_reconstructed_state_mag": jnp.mean(
+                jnp.abs(reconstructed_states), axis=-1
+            ),
+            "mean_reconstructed_action_mag": jnp.mean(
+                jnp.abs(reconstructed_actions), axis=-1
+            ),
+        },
     }

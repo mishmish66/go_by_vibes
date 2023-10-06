@@ -81,7 +81,9 @@ def loss_forward(
     known_states = einsum(
         latent_states[:-1], known_state_mask[:-1], "... d, ... -> ... d"
     )
-    latent_state_prime_gaussians = get_next_state_space_gaussians(
+    rng, key = jax.random.split(key)
+    next_latent_states_prime = infer_states(
+        rng,
         transition_state,
         known_states,
         latent_actions,
@@ -89,25 +91,21 @@ def loss_forward(
         transition_params,
     )
 
-    inferred_state_gaussians = einsum(
-        latent_state_prime_gaussians, (1 - known_state_mask)[1:], "... d, ... -> ... d"
-    )
-    gt_states = einsum(
-        latent_states[1:], (1 - known_state_mask)[1:], "... d, ... -> ... d"
-    )
-
     indices = jnp.cumsum((1 - known_state_mask)[1:].astype(jnp.float32), axis=0) - 0.5
     decreasing_function = 1 / ((indices - 0.5) * (1 - known_state_mask)[1:] + 1)
 
-    log_probs = jax.vmap(eval_log_gaussian, (0, 0))(inferred_state_gaussians, gt_states)
-    
-    # jax.debug.print("gauss 0: {}", inferred_state_gaussians[0])
-    # jax.debug.print("log prob 0: {}", log_probs[0])
+    next_latent_states = latent_states[1:]
 
-    # bounded_diff_mag_sq = sigmoid(diff_mag_sq * decreasing_function) * 2 - 1
-    scaled_log_probs = log_probs * decreasing_function
+    diffs = next_latent_states_prime - next_latent_states
+    diff_log_mags = jnp.log(jnp.linalg.norm(diffs, axis=-1))
 
-    return jnp.mean(scaled_log_probs)
+    inferred_state_diff_log_mags = einsum(
+        diff_log_mags, (1 - known_state_mask)[1:], "... d, ... -> ... d"
+    )
+
+    scaled_diff_log_mags = inferred_state_diff_log_mags * decreasing_function
+
+    return jnp.nan_to_num(jnp.mean(scaled_diff_log_mags), nan=1e9)
 
 
 def loss_reconstruction(
@@ -150,28 +148,31 @@ def loss_reconstruction(
         action_encoder_params,
     )
 
-    state_space_gaussians = jax.vmap(get_state_space_gaussian, (None, 0, None))(
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_states.shape[0])
+    reconstructed_state_gaussians = jax.vmap(get_state_space_gaussian, (None, 0, None))(
         state_decoder_state, latent_states, state_decoder_params
     )
-    action_space_gaussians = jax.vmap(get_action_space_gaussian, (None, 0, 0, None))(
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_actions.shape[0])
+    reconstructed_action_gaussians = jax.vmap(get_action_space_gaussian, (None, 0, 0, None))(
         action_decoder_state, latent_actions, latent_states, action_decoder_params
     )
 
     state_probs = jax.vmap(
         eval_log_gaussian,
         (0, 0),
-    )(state_space_gaussians, states)
+    )(reconstructed_state_gaussians, states)
     action_probs = jax.vmap(
         eval_log_gaussian,
         (0, 0),
-    )(action_space_gaussians, actions)
+    )(reconstructed_action_gaussians, actions)
 
-    scaled_state_probs = state_probs / states.shape[0]
-    scaled_action_probs = action_probs / actions.shape[0]
+    scaled_state_probs = jnp.nan_to_num(state_probs, nan=-1e20)
+    scaled_action_probs = jnp.nan_to_num(action_probs, nan=-1e20)
 
-    # jax.debug.print("state_prob 0: {}", state_probs[0]) I realize now that the logpdf is negative, I am silly
-
-    return -jnp.sum(scaled_state_probs) - jnp.sum(scaled_action_probs)
+    return -(jnp.mean(scaled_state_probs) + jnp.mean(scaled_action_probs)) / 2
 
 
 # Continuity loss idea:
