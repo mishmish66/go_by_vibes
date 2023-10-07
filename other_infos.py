@@ -86,6 +86,11 @@ def make_other_infos(
     )
 
     state_reconstruction_diffs = reconstructed_states - states
+    state_reconstruction_diff_mags = jnp.linalg.norm(
+        state_reconstruction_diffs, axis=-1
+    )
+
+    reconstructed_states_var_mags = jnp.abs(reconstructed_states[14:])
 
     latent_state_gaussian_vars = latent_state_gaussian_params[..., encoded_state_dim:]
 
@@ -110,12 +115,18 @@ def make_other_infos(
         },
         "state": {
             "mean_state_reconstruction_diffs_mag": jnp.mean(
-                jnp.abs(state_reconstruction_diffs), axis=-1
+                state_reconstruction_diff_mags, axis=-1
+            ),
+            "med_state_rec_diff_mag": jnp.median(
+                state_reconstruction_diff_mags, axis=-1
             ),
             "mean_state_mag": jnp.mean(jnp.abs(states), axis=-1),
             "mean_latent_state_mag": jnp.mean(jnp.abs(latent_states), axis=-1),
             "min_latent_state_gauss_var_mag": jnp.min(
                 latent_state_gaussian_vars, axis=-1
+            ),
+            "reconstructed_states_var_mags": jnp.mean(
+                reconstructed_states_var_mags, axis=-1
             ),
         },
         "action": {
