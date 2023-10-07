@@ -10,3 +10,4 @@ vibes
 *.synctext(busy)
 memory.prof
 infos
+wandb

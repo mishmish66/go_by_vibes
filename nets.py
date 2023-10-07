@@ -63,8 +63,8 @@ class StateEncoder(nn.Module):
                 [
                     128,
                     128,
-                    # 128,
-                    # 64,
+                    128,
+                    64,
                     encoded_state_dim * 2,
                 ]
             )
@@ -92,10 +92,10 @@ class StateDecoder(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(128, name="FC2")(x)
         x = nn.relu(x)
-        # x = nn.Dense(64, name="FC3")(x)
-        # x = nn.relu(x)
-        # x = nn.Dense(64, name="FC4")(x)
-        # x = nn.relu(x)
+        x = nn.Dense(64, name="FC3")(x)
+        x = nn.relu(x)
+        x = nn.Dense(64, name="FC4")(x)
+        x = nn.relu(x)
         x = nn.Dense(28, name="FC5")(x)
         x_mean = x[..., :14]
         x_std = x[..., 14:]
@@ -114,8 +114,8 @@ class ActionEncoder(nn.Module):
                 [
                     128,
                     128,
-                    # 128,
-                    # 64,
+                    128,
+                    64,
                     encoded_action_dim * 2,
                 ]
             )
@@ -147,10 +147,10 @@ class ActionDecoder(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(128, name="FC2")(x)
         x = nn.relu(x)
-        # x = nn.Dense(64, name="FC3")(x)
-        # x = nn.relu(x)
-        # x = nn.Dense(64, name="FC4")(x)
-        # x = nn.relu(x)
+        x = nn.Dense(64, name="FC3")(x)
+        x = nn.relu(x)
+        x = nn.Dense(64, name="FC4")(x)
+        x = nn.relu(x)
         x = nn.Dense(8, name="FC5")(x)
         x_mean = x[..., :4]
         x_std = x[..., 4:]
@@ -495,7 +495,6 @@ def get_next_state_space_gaussians(
 
     return next_state_gaussian
 
-
 def infer_states(
     key,
     transition_model_state,
@@ -503,6 +502,7 @@ def infer_states(
     latent_actions,
     dt,
     transition_model_params=None,
+    return_gaussians=False,
 ):
     if transition_model_params is None:
         transition_model_params = transition_model_state.params
@@ -523,4 +523,7 @@ def infer_states(
 
     # jax.debug.print("NaN in inferred_states: {}", jnp.isnan(inferred_states).any())
 
-    return inferred_states
+    if return_gaussians:
+        return inferred_states, inferred_state_gaussians
+    else:
+        return inferred_states

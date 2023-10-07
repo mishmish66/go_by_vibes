@@ -49,12 +49,14 @@ def make_other_infos(
     )
 
     rng, key = jax.random.split(key)
-    latent_states_prime = infer_states(
+    latent_states_prime, latent_state_prime_gaussians = infer_states(
         rng,
         transition_model_state,
         latent_states[:-1],
         latent_actions,
         dt,
+        None,
+        True,
     )
 
     state_space_gaussians = jax.vmap(get_state_space_gaussian, in_axes=(None, 0))(
@@ -86,57 +88,33 @@ def make_other_infos(
     )
 
     state_reconstruction_diffs = reconstructed_states - states
-    state_reconstruction_diff_mags = jnp.linalg.norm(
-        state_reconstruction_diffs, axis=-1
-    )
+    state_reconstruction_diff_mags = jnp.abs(state_reconstruction_diffs)
 
     reconstructed_states_var_mags = jnp.abs(reconstructed_states[14:])
 
     latent_state_gaussian_vars = latent_state_gaussian_params[..., encoded_state_dim:]
 
-    next_latent_state_gaussian_params = get_next_state_space_gaussians(
-        transition_model_state, latent_states[:-1, ...], latent_actions, dt
-    )
-
-    rng, key = jax.random.split(key)
-    one_of_next_latent_state_gaussian_params = jax.random.choice(
-        rng, next_latent_state_gaussian_params, axis=0
-    )
-
     return {
         "forward": {
-            "one_of_next_latent_state_gaussian_params": one_of_next_latent_state_gaussian_params,
-            "mean_latent_state_prime_mag": jnp.mean(
-                jnp.abs(latent_states_prime), axis=-1
-            ),
-            "mean_reconstructed_state_prime_mag": jnp.mean(
-                jnp.abs(reconstructed_states_prime), axis=-1
+            "latent_state_prime_mags": jnp.linalg.norm(latent_states_prime, axis=-1),
+            "latent_state_prime_gauss_var_mags": latent_state_prime_gaussians[
+                ..., encoded_state_dim:
+            ],
+            "reconstructed_state_prime_diff_mags": jnp.ravel(
+                jnp.abs(reconstructed_states_prime - states[1:])
             ),
         },
         "state": {
-            "mean_state_reconstruction_diffs_mag": jnp.mean(
-                state_reconstruction_diff_mags, axis=-1
-            ),
-            "med_state_rec_diff_mag": jnp.median(
-                state_reconstruction_diff_mags, axis=-1
-            ),
-            "mean_state_mag": jnp.mean(jnp.abs(states), axis=-1),
-            "mean_latent_state_mag": jnp.mean(jnp.abs(latent_states), axis=-1),
-            "min_latent_state_gauss_var_mag": jnp.min(
-                latent_state_gaussian_vars, axis=-1
-            ),
-            "reconstructed_states_var_mags": jnp.mean(
-                reconstructed_states_var_mags, axis=-1
-            ),
+            "state_reconstruction_diff_mags": state_reconstruction_diff_mags,
+            "state_pos": jnp.ravel(jnp.abs(states[..., :7])),
+            "state_vel": jnp.ravel(jnp.abs(states[..., 7:])),
+            "latent_state_mags": jnp.linalg.norm(latent_states, axis=-1),
+            "latent_state_gauss_var_mags": latent_state_gaussian_vars,
+            "reconstructed_state_mags": jnp.abs(reconstructed_states),
         },
         "action": {
-            "mean_latent_action_mag": jnp.mean(
-                jnp.abs(latent_actions[:encoded_action_dim]), axis=-1
-            ),
-            "mean_action_mag": jnp.mean(jnp.abs(actions), axis=-1),
-            "mean_reconstructed_state_mag": jnp.mean(
-                jnp.abs(reconstructed_states), axis=-1
-            ),
+            "latent_action_mags": jnp.abs(latent_actions),
+            "action_mag": jnp.mean(jnp.abs(actions), axis=-1),
             "mean_reconstructed_action_mag": jnp.mean(
                 jnp.abs(reconstructed_actions), axis=-1
             ),

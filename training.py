@@ -31,6 +31,8 @@ from other_infos import make_other_infos
 
 import os
 
+import wandb
+
 
 def multiloss(loss_fn, multiness=16):
     def wrapped_loss_fn(key, *args):
@@ -75,12 +77,21 @@ class TrainState(train_state.TrainState):
     metrics: Metrics
 
 
-def create_train_state(module, dims, rng, learning_rate, other={}):
+def create_train_state(module, dims, rng, learning_rate, every_k=1, other={}):
     """Creates an initial `TrainState`."""
     dummy = [jnp.ones(dim) for dim in dims]
     params = module.init(rng, *dummy, **other)[
         "params"
     ]  # initialize parameters by passing a template image
+
+    tx = optax.MultiSteps(
+        optax.chain(
+            optax.clip_by_global_norm(1.0),
+            optax.lion(learning_rate),
+        ),
+        every_k_schedule=every_k,
+    )
+
     tx = optax.lion(learning_rate)
     return TrainState.create(
         apply_fn=module.apply, params=params, tx=tx, metrics=Metrics.empty()
@@ -98,6 +109,7 @@ def state_encoder_loss(
     action_bounds,
     dt,
     state_encoder_params,
+    loss_weights,
 ):
     trajectory_count = rollout_result[0].shape[0]
 
@@ -137,7 +149,7 @@ def state_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    smoothness_loss_per_traj = jnp.zeros_like(jax.vmap(
+    smoothness_loss_per_traj = jax.vmap(
         multiloss(loss_smoothness, 4), (0, None, None, None, 0, 0, None, None)
     )(
         rngs,
@@ -148,12 +160,12 @@ def state_encoder_loss(
         actions,
         dt,
         state_encoder_params,
-    ))
+    )
     smoothness_loss = jnp.sum(smoothness_loss_per_traj) / trajectory_count
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    dispersion_loss_per_traj = jnp.zeros_like(jax.vmap(
+    dispersion_loss_per_traj = jax.vmap(
         multiloss(loss_disperse, 4), (0, None, None, None, 0, 0, None, None, None)
     )(
         rngs,
@@ -165,7 +177,7 @@ def state_encoder_loss(
         action_bounds,
         dt,
         state_encoder_params,
-    ))
+    )
     dispersion_loss = jnp.sum(dispersion_loss_per_traj) / trajectory_count
 
     # jax.debug.print(
@@ -180,19 +192,17 @@ def state_encoder_loss(
     #     dispersion_loss,
     # )
 
-    shaped_sigmoid_reconstruction_loss = 1 / (
-        1 + jnp.exp(reconstruction_loss + 10)
-    )
+    shaped_sigmoid_reconstruction_loss = 1 / (1 + jnp.exp(reconstruction_loss + 50))
 
     gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
 
-    scaled_gated_forward_loss = 0.1 * forward_loss * gate_value
+    gated_forward_loss = forward_loss * gate_value
 
     return (
-        scaled_gated_forward_loss
-        + reconstruction_loss
-        + smoothness_loss
-        + dispersion_loss,
+        gated_forward_loss * loss_weights["forward"]
+        + reconstruction_loss * loss_weights["reconstruction"]
+        + smoothness_loss * loss_weights["smoothness"]
+        + dispersion_loss * loss_weights["dispersion"],
         (
             {
                 "forward": forward_loss_per_traj,
@@ -217,6 +227,7 @@ def action_encoder_loss(
     action_bounds,
     dt,
     action_encoder_params,
+    weights,
 ):
     trajectory_count = rollout_result[0].shape[0]
 
@@ -224,7 +235,7 @@ def action_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[0])
-    forward_loss_per_env =jax.vmap(
+    forward_loss_per_env = jax.vmap(
         loss_forward, (0, None, None, None, 0, 0, None, None, None)
     )(
         rngs,
@@ -259,56 +270,52 @@ def action_encoder_loss(
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    smoothness_loss_per_traj = jnp.zeros_like(
-        jax.vmap(
-            multiloss(loss_smoothness, 4), (0, None, None, None, 0, 0, None, None, None)
-        )(
-            rngs,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            states,
-            actions,
-            dt,
-            None,
-            action_encoder_params,
-        )
+    smoothness_loss_per_traj = jax.vmap(
+        multiloss(loss_smoothness, 4), (0, None, None, None, 0, 0, None, None, None)
+    )(
+        rngs,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        states,
+        actions,
+        dt,
+        None,
+        action_encoder_params,
     )
     smoothness_loss = jnp.sum(smoothness_loss_per_traj) / trajectory_count
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    dispersion_loss_per_traj = jnp.zeros_like(
-        jax.vmap(
-            multiloss(loss_disperse, 4),
-            (0, None, None, None, 0, 0, None, None, None, None),
-        )(
-            rngs,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            states,
-            actions,
-            action_bounds,
-            dt,
-            None,
-            action_encoder_params,
-        )
+    dispersion_loss_per_traj = jax.vmap(
+        multiloss(loss_disperse, 4),
+        (0, None, None, None, 0, 0, None, None, None, None),
+    )(
+        rngs,
+        state_encoder_state,
+        action_encoder_state,
+        transition_model_state,
+        states,
+        actions,
+        action_bounds,
+        dt,
+        None,
+        action_encoder_params,
     )
     dispersion_loss = jnp.sum(dispersion_loss_per_traj) / trajectory_count
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectory_count)
-    condensation_loss_per_traj = jnp.zeros_like(
-        jax.vmap(multiloss(loss_condense, 4), (0, None, None, 0, 0, None, None))(
-            rngs,
-            state_encoder_state,
-            action_encoder_state,
-            states,
-            actions,
-            action_bounds,
-            action_encoder_params,
-        )
+    condensation_loss_per_traj = jax.vmap(
+        multiloss(loss_condense, 4), (0, None, None, 0, 0, None, None)
+    )(
+        rngs,
+        state_encoder_state,
+        action_encoder_state,
+        states,
+        actions,
+        action_bounds,
+        action_encoder_params,
     )
     condensation_loss = jnp.sum(condensation_loss_per_traj) / trajectory_count
 
@@ -327,11 +334,11 @@ def action_encoder_loss(
     # )
 
     return (
-        forward_loss
-        + reconstruction_loss
-        + smoothness_loss
-        + dispersion_loss
-        + condensation_loss,
+        forward_loss * weights["forward"]
+        + reconstruction_loss * weights["reconstruction"]
+        + smoothness_loss * weights["smoothness"]
+        + dispersion_loss * weights["dispersion"]
+        + condensation_loss * weights["condensation"],
         {
             "forward": forward_loss,
             "reconstruction": reconstruction_loss_per_traj,
@@ -350,6 +357,7 @@ def transition_model_loss(
     rollout_result,
     dt,
     transition_model_params,
+    weights,
 ):
     trajectory_count = rollout_result[0].shape[0]
 
@@ -374,7 +382,10 @@ def transition_model_loss(
     )
     forward_loss = jnp.sum(forward_loss_per_traj) / trajectory_count
 
-    return forward_loss, {"forward": forward_loss_per_traj}
+    return (
+        forward_loss * weights["forward"],
+        {"forward": forward_loss_per_traj},
+    )
 
 
 def state_decoder_loss(
@@ -385,6 +396,7 @@ def state_decoder_loss(
     action_decoder_state,
     rollout_result,
     state_decoder_params,
+    weights,
 ):
     trajectory_count = rollout_result[0].shape[0]
 
@@ -411,7 +423,10 @@ def state_decoder_loss(
         / trajectory_count
     )
 
-    return reconstruction_loss, {"reconstruction": reconstruction_loss}
+    return (
+        reconstruction_loss * weights["reconstruction"],
+        {"reconstruction": reconstruction_loss},
+    )
 
 
 def action_decoder_loss(
@@ -422,6 +437,7 @@ def action_decoder_loss(
     action_decoder_state,
     rollout_result,
     action_decoder_params,
+    weights,
 ):
     trajectory_count = rollout_result[0].shape[0]
 
@@ -447,7 +463,10 @@ def action_decoder_loss(
     )
     reconstruction_loss = jnp.sum(reconstruction_loss_per_traj) / trajectory_count
 
-    return reconstruction_loss, {"reconstruction": reconstruction_loss_per_traj}
+    return (
+        reconstruction_loss * weights["reconstruction"],
+        {"reconstruction": reconstruction_loss_per_traj},
+    )
 
 
 def get_grads(
@@ -460,6 +479,7 @@ def get_grads(
     rollout_result,
     action_bounds,
     dt,
+    weights,
 ):
     rng, key = jax.random.split(key)
 
@@ -476,6 +496,7 @@ def get_grads(
             action_bounds,
             dt,
             state_encoder_params,
+            weights["state_encoder"],
         )
 
     def action_encoder_loss_for_grad(action_encoder_params, key):
@@ -491,6 +512,7 @@ def get_grads(
             action_bounds,
             dt,
             action_encoder_params,
+            weights["action_encoder"],
         )
 
     def transition_model_loss_for_grad(transition_model_params, key, gate_value):
@@ -503,6 +525,7 @@ def get_grads(
             rollout_result,
             dt,
             transition_model_params,
+            weights["transition_model"],
         )
 
         return loss_val * gate_value, info
@@ -517,6 +540,7 @@ def get_grads(
             action_decoder_state,
             rollout_result,
             state_decoder_params,
+            weights["state_decoder"],
         )
 
     def action_decoder_loss_for_grad(action_decoder_params, key):
@@ -529,6 +553,7 @@ def get_grads(
             action_decoder_state,
             rollout_result,
             action_decoder_params,
+            weights["action_decoder"],
         )
 
     action_encoder_grad_fn = jax.value_and_grad(
@@ -593,6 +618,7 @@ def train_step(
     rollout_result,
     action_bounds,
     dt,
+    weights,
 ):
     """Train for a single step."""
 
@@ -615,6 +641,7 @@ def train_step(
         rollout_result,
         action_bounds,
         dt,
+        weights,
     )
 
     def grad_norm(grad):
@@ -717,6 +744,7 @@ def compute_metrics(
     rollout_result,
     action_bounds,
     dt,
+    weights,
 ):
     rng, key = jax.random.split(key)
     state_encoder_loss_val, _ = state_encoder_loss(
@@ -730,6 +758,7 @@ def compute_metrics(
         action_bounds,
         dt,
         state_encoder_state.params,
+        weights["state_encoder"],
     )
     rng, key = jax.random.split(key)
     action_encoder_loss_val, _ = action_encoder_loss(
@@ -743,6 +772,7 @@ def compute_metrics(
         action_bounds,
         dt,
         action_encoder_state.params,
+        weights["action_encoder"],
     )
     rng, key = jax.random.split(key)
     transition_model_loss_val, _ = transition_model_loss(
@@ -753,6 +783,7 @@ def compute_metrics(
         rollout_result,
         dt,
         transition_model_state.params,
+        weights["transition_model"],
     )
 
     rng, key = jax.random.split(key)
@@ -764,6 +795,7 @@ def compute_metrics(
         action_decoder_state,
         rollout_result,
         state_decoder_state.params,
+        weights["state_decoder"],
     )
     action_decoder_loss_val, _ = action_decoder_loss(
         rng,
@@ -773,6 +805,7 @@ def compute_metrics(
         action_decoder_state,
         rollout_result,
         action_decoder_state.params,
+        weights["action_decoder"],
     )
 
     # metric_updates = state_encoder_state.metrics.single_from_model_output(
@@ -844,20 +877,44 @@ def merge_info_msgs(paths_and_stringses):
 
 
 # def dump_infos(location, infos, rollout):
-def dump_infos(location, infos, rollout):
+def dump_infos(path, infos, rollout, every_k):
     # print(f"Dumping infos rollout: {rollout}")
     if not isinstance(infos, dict):
         data = infos
+        
+        location = os.path.join(*path)
         filepath = f"{location}.txt"
+
+        result = ""
+        for epoch_i in range(data.shape[0]):
+            for batch_i in range(data.shape[1] // every_k):
+                chunk_i = batch_i * every_k
+                data_mean = jnp.mean(data[epoch_i, chunk_i, ...])
+                num_string = f"{data_mean:.16f}"[:12]
+                string_to_add = f"{num_string}\t\tRollout {rollout}, Epoch {epoch_i}, Batch {batch_i}\n"
+                result += string_to_add
+                
+                wandb_log(path, data_mean)
 
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "a") as f:
-            for epoch_i in range(data.shape[0]):
-                for batch_i in range(data.shape[1]):
-                    data_mean = jnp.mean(data[epoch_i, batch_i, ...])
-                    num_string = f"{data_mean:.16f}"[:12]
-                    string_to_add = f"{num_string}\t\tRollout {rollout}, Epoch {epoch_i}, Batch {batch_i}\n"
-                    f.write(string_to_add)
+            f.write(result)
+
     else:
         for sub_folder_name, info in infos.items():
-            dump_infos(os.path.join(location, sub_folder_name), info, rollout)
+            dump_infos([*path, sub_folder_name], info, rollout, every_k)
+
+def dump_to_wandb(infos, chunk_i, every_k):
+    if chunk_i % every_k == 0:
+        wandb.log(infos)
+        
+def wandb_log(path, quantity, result_dict = None):
+    if len(path) == 0:
+        wandb.log(dict)
+    else:
+        if result_dict is None:
+            result_dict = {path[-1]: quantity}
+        else:
+            result_dict = {path[-1]: result_dict}
+        
+        wandb_log(path[:-1], None, result_dict)

@@ -27,6 +27,7 @@ from training import (
     train_step,
     compute_metrics,
     dump_infos,
+    dump_to_wandb,
     make_info_msgs,
     merge_info_msgs,
 )
@@ -46,6 +47,8 @@ import timeit
 import os
 
 from contextlib import redirect_stdout
+
+import wandb
 
 shutil.rmtree("infos", ignore_errors=True)
 
@@ -99,12 +102,32 @@ transition_model = TransitionModel(n=1e4, latent_dim=128)
 state_decoder = StateDecoder()
 action_decoder = ActionDecoder()
 
+learning_rates = {
+    "state_encoder": 1e-5,
+    "action_encoder": 1e-5,
+    "transition_model": 1e-6,
+    "state_decoder": 1e-5,
+    "action_decoder": 1e-5,
+}
+
+every_k = 8
+
 rng, key = jax.random.split(key)
-state_encoder_state = create_train_state(state_encoder, [14], rng, learning_rate=1e-4)
+state_encoder_state = create_train_state(
+    state_encoder,
+    [14],
+    rng,
+    learning_rate=learning_rates["state_encoder"],
+    every_k=every_k,
+)
 
 rng, key = jax.random.split(key)
 action_encoder_state = create_train_state(
-    action_encoder, [4, encoded_state_dim], rng, learning_rate=1e-4
+    action_encoder,
+    [4, encoded_state_dim],
+    rng,
+    learning_rate=learning_rates["action_encoder"],
+    every_k=every_k,
 )
 
 rng, key = jax.random.split(key)
@@ -112,17 +135,26 @@ transition_model_state = create_train_state(
     transition_model,
     [(16, encoded_state_dim), (16, encoded_action_dim), (16,)],
     rng,
-    learning_rate=1e-5,
+    learning_rate=learning_rates["transition_model"],
+    every_k=every_k,
 )
 
 rng, key = jax.random.split(key)
 state_decoder_state = create_train_state(
-    state_decoder, [encoded_state_dim], rng, learning_rate=1e-4
+    state_decoder,
+    [encoded_state_dim],
+    rng,
+    learning_rate=learning_rates["state_decoder"],
+    every_k=every_k,
 )
 
 rng, key = jax.random.split(key)
 action_decoder_state = create_train_state(
-    action_decoder, [encoded_action_dim, encoded_state_dim], rng, learning_rate=1e-4
+    action_decoder,
+    [encoded_action_dim, encoded_state_dim],
+    rng,
+    learning_rate=learning_rates["action_decoder"],
+    every_k=every_k,
 )
 
 action_bounds = jnp.array([0.5, 0.5, 0.5, 0.5])
@@ -160,26 +192,60 @@ rollout_result = None
 info_folder = "infos"
 jax_log_path = os.path.join(info_folder, "jax_log.txt")
 
+loss_weights = {
+    "state_encoder": {
+        "reconstruction": 1.0,
+        "forward": 0.1,
+        "smoothness": 0.0,
+        "dispersion": 0.0,
+    },
+    "action_encoder": {
+        "reconstruction": 1.0,
+        "forward": 0.1,
+        "smoothness": 0.0,
+        "dispersion": 0.0,
+        "condensation": 0.0,
+    },
+    "transition_model": {
+        "forward": 1.0,
+    },
+    "state_decoder": {
+        "reconstruction": 1.0,
+    },
+    "action_decoder": {
+        "reconstruction": 1.0,
+    },
+}
+
 rollouts = 1024
-trajectories_per_rollout = 1024
-epochs = 16
-minibatch = 128
+trajectories_per_rollout = 4096
+epochs = 64
+minibatch = 256
 
-# state_dict = {
-#     "state_encoder_state": state_encoder_state,
-#     "action_encoder_state": action_encoder_state,
-#     "transition_model_state": transition_model_state,
-#     "state_decoder_state": state_decoder_state,
-#     "action_decoder_state": action_decoder_state,
-# }
+config = {
+    "learning_rates": learning_rates,
+    "loss_weights": loss_weights,
+    "rollouts": rollouts,
+    "trajectories_per_rollout": trajectories_per_rollout,
+    "epochs": epochs,
+    "minibatch": minibatch,
+}
 
-for rollout in range(rollouts):
-    pass
+wandb.init(
+    project="go_by_vibes",
+    config=config,
+    # mode="disabled",
+)
+
 
 def dump_infos_for_tap(tap_pack, _):
     infos, rollout = tap_pack
-    dump_infos(info_folder, infos, rollout)
+    dump_infos([info_folder], infos, rollout, every_k)
     
+def dump_to_wandb_for_tap(tap_pack, _):
+    infos, chunk_i = tap_pack
+    dump_to_wandb(infos, chunk_i, every_k)
+
 
 def do_rollout(carry_pack, _):
     (
@@ -228,13 +294,14 @@ def do_rollout(carry_pack, _):
         states = rollout_result[0][indices]
         actions = rollout_result[1][indices]
 
-        infos = []
-
-        start_i = 0
+        jax.experimental.host_callback.id_tap(
+            lambda epoch, _: print(f"Epoch {epoch}"), epoch
+        )
 
         def process_batch(carry, rollout_result_batch):
             (
                 key,
+                chunk_i,
                 state_encoder_state,
                 action_encoder_state,
                 transition_model_state,
@@ -265,33 +332,22 @@ def do_rollout(carry_pack, _):
                 rollout_result_batch,
                 action_bounds,
                 dt,
+                loss_weights,
             )
 
-            # rng, key = jax.random.split(key)
-            # (
-            #     state_encoder_state,
-            #     action_encoder_state,
-            #     transition_model_state,
-            #     state_decoder_state,
-            #     action_decoder_state,
-            #     msg,
-            # ) = compute_metrics(
-            #     rng,
-            #     state_encoder_state,
-            #     action_encoder_state,
-            #     state_decoder_state,
-            #     action_decoder_state,
-            #     transition_model_state,
-            #     rollout_result_batch,
-            #     action_bounds,
-            #     dt,
-            # )
             msg = None
 
-            # info_msgs = make_info_msgs(loss_infos)
+            jax.experimental.host_callback.id_tap(
+                lambda chunk, _: print(f"Chunk {chunk}"), chunk_i
+            )
+
+            jax.experimental.host_callback.id_tap(
+                dump_to_wandb_for_tap, (loss_infos, chunk_i)
+            )
 
             return (
                 key,
+                chunk_i + 1,
                 state_encoder_state,
                 action_encoder_state,
                 transition_model_state,
@@ -299,14 +355,19 @@ def do_rollout(carry_pack, _):
                 action_decoder_state,
             ), (msg, loss_infos)
 
-        states_batched = einops.rearrange(states, "(r b) t d -> r b t d", b=minibatch)
-        actions_batched = einops.rearrange(actions, "(r b) t d -> r b t d", b=minibatch)
+        states_batched = einops.rearrange(
+            states, "(r b) t d -> r b t d", b=(minibatch // every_k)
+        )
+        actions_batched = einops.rearrange(
+            actions, "(r b) t d -> r b t d", b=(minibatch // every_k)
+        )
 
         rollout_results_batched = (states_batched, actions_batched)
 
         rng, key = jax.random.split(key)
         init = (
             rng,
+            0,
             state_encoder_state,
             action_encoder_state,
             transition_model_state,
@@ -316,6 +377,7 @@ def do_rollout(carry_pack, _):
 
         (
             _,
+            _,
             state_encoder_state,
             action_encoder_state,
             transition_model_state,
@@ -324,33 +386,6 @@ def do_rollout(carry_pack, _):
         ), (msg, loss_infos) = jax.lax.scan(
             process_batch, init, rollout_results_batched
         )
-
-        # Pretend to scan
-        # carry = init
-        # y = []
-        # for i in range(rollout_results_batched[0].shape[0]):
-        #     carry, this_y = process_batch(carry, (rollout_results_batched[0][i], rollout_results_batched[1][i]))
-        #     y.append(this_y)
-
-        # y = jax.tree_util.tree_map(lambda *args: jnp.stack(args, axis=0), *y)
-        # msg, loss_infos = y
-        # (
-        #     key,
-        #     state_encoder_state,
-        #     action_encoder_state,
-        #     transition_model_state,
-        #     state_decoder_state,
-        #     action_decoder_state,
-        # ) = carry
-        # End pretend scan
-
-        # dump_infos("infos", loss_infos, epoch, rollout)
-
-        # state_dict["state_encoder_state"] = state_encoder_state
-        # state_dict["action_encoder_state"] = action_encoder_state
-        # state_dict["transition_model_state"] = transition_model_state
-        # state_dict["state_decoder_state"] = state_decoder_state
-        # state_dict["action_decoder_state"] = action_decoder_state
 
         return (
             key,
@@ -362,23 +397,10 @@ def do_rollout(carry_pack, _):
             action_decoder_state,
         ), loss_infos
 
-        # return (
-        #     epoch + 1,
-        #     state_encoder_state,
-        #     action_encoder_state,
-        #     transition_model_state,
-        #     state_decoder_state,
-        #     action_decoder_state,
-        #     final_infos,
-        # )
-
         # jax.profiler.save_device_memory_profile("memory.prof")
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, epochs)
-
-    # for i in range(epochs):
-    #     do_epoch(i, rollout, rngs[i])
 
     rng, key = jax.random.split(key)
     init = (
@@ -395,9 +417,6 @@ def do_rollout(carry_pack, _):
         lambda rollout, _: print(f"Rollout {rollout}"), rollout_i
     )
 
-    # os.makedirs(os.path.dirname(jax_log_path), exist_ok=True)
-    # with open(jax_log_path, "a") as f:
-    #     with redirect_stdout(f):
     (
         _,
         _,
@@ -408,7 +427,7 @@ def do_rollout(carry_pack, _):
         action_decoder_state,
     ), infos = jax.lax.scan(do_epoch, init, None, length=epochs)
 
-    jax.experimental.host_callback.id_tap(dump_infos_for_tap, (infos, rollout_i))
+    # jax.experimental.host_callback.id_tap(dump_infos_for_tap, (infos, rollout_i))
 
     return (
         key,
