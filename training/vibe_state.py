@@ -50,6 +50,8 @@ class TrainConfig:
     state_decoder: any
     action_decoder: any
 
+    rollouts: int
+    epochs: int
     batch_size: int
     traj_per_rollout: int
     rollout_length: float
@@ -69,6 +71,8 @@ class TrainConfig:
         transition_model,
         state_decoder,
         action_decoder,
+        rollouts=1024,
+        epochs=128,
         batch_size=256,
         traj_per_rollout=2048,
         reconstruction_weight=1.0,
@@ -85,6 +89,8 @@ class TrainConfig:
             transition_model=transition_model,
             state_decoder=state_decoder,
             action_decoder=action_decoder,
+            rollouts=rollouts,
+            epochs=epochs,
             batch_size=batch_size,
             traj_per_rollout=traj_per_rollout,
             reconstruction_weight=reconstruction_weight,
@@ -113,6 +119,8 @@ class TrainConfig:
             "transition_model": self.transition_model,
             "state_decoder": self.state_decoder,
             "action_decoder": self.action_decoder,
+            "rollouts": self.rollouts,
+            "epochs": self.epochs,
             "batch_size": self.batch_size,
             "traj_per_rollout": self.traj_per_rollout,
             "reconstruction_weight": self.reconstruction_weight,
@@ -132,6 +140,8 @@ class TrainConfig:
             transition_model=aux["transition_model"],
             state_decoder=aux["state_decoder"],
             action_decoder=aux["action_decoder"],
+            rollouts=aux["rollouts"],
+            epochs=aux["epochs"],
             batch_size=aux["batch_size"],
             traj_per_rollout=aux["traj_per_rollout"],
             reconstruction_weight=aux["reconstruction_weight"],

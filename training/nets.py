@@ -22,7 +22,6 @@ class FreqLayer(nn.Module):
         per_dim = (((self.out_dim // d) + 1) // 2) + 1
         indices = jnp.arange(per_dim)
         freq_factor = 5 / jnp.power(1e4, 2 * indices / d)
-        jax.debug.print("x shape: {}", x.shape)
         operands = einsum(x, freq_factor, "d, w -> w d")
         sins = jnp.sin(operands)
         cosines = jnp.cos(operands)

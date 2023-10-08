@@ -47,8 +47,9 @@ from contextlib import redirect_stdout
 
 import wandb
 
-# from jax import config
-# config.update("jax_disable_jit", True)
+from jax import config
+
+config.update("jax_debug_nans", True)
 
 # Generate random key
 key = jax.random.PRNGKey(1)
@@ -83,18 +84,18 @@ vibe_config = TrainConfig(
         ),
         every_k_schedule=every_k,
     ),
-    
     state_encoder=StateEncoder(),
     action_encoder=ActionEncoder(),
     transition_model=TransitionModel(1e4, 256),
     state_decoder=StateDecoder(),
     action_decoder=ActionDecoder(),
-    
+    rollouts=4096,
+    epochs=256,
     batch_size=256,
     traj_per_rollout=2048,
     reconstruction_weight=1.0,
-    forward_weight=1.0,
-    rollout_length=5.0,
+    forward_weight=0.0,  # 1.0,
+    rollout_length=0.2,
     dt=0.02,
     substep=2,
 )
@@ -137,36 +138,6 @@ rngs = jax.random.split(rng, start_q.shape[:-1])
 info_folder = "infos"
 jax_log_path = os.path.join(info_folder, "jax_log.txt")
 
-loss_weights = {
-    "state_encoder": {
-        "reconstruction": 1.0,
-        "forward": 0.1,
-        "smoothness": 0.0,
-        "dispersion": 0.0,
-    },
-    "action_encoder": {
-        "reconstruction": 1.0,
-        "forward": 0.1,
-        "smoothness": 0.0,
-        "dispersion": 0.0,
-        "condensation": 0.0,
-    },
-    "transition_model": {
-        "forward": 1.0,
-    },
-    "state_decoder": {
-        "reconstruction": 1.0,
-    },
-    "action_decoder": {
-        "reconstruction": 1.0,
-    },
-}
-
-rollouts = 1024
-trajectories_per_rollout = 4096
-epochs = 64
-minibatch = 256
-
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
@@ -188,7 +159,7 @@ def do_rollout(carry_pack, _):
     (key, rollout_i, vibe_state) = carry_pack
 
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, trajectories_per_rollout)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 
     rollout_result = jax.vmap(collect_rollout, in_axes=((None,) * 8 + (0,)))(
         start_q,
@@ -260,10 +231,10 @@ def do_rollout(carry_pack, _):
             return (key, chunk_i + 1, vibe_state), (msg, loss_infos)
 
         states_batched = einops.rearrange(
-            states, "(r b) t d -> r b t d", b=(minibatch // every_k)
+            states, "(r b) t d -> r b t d", b=(vibe_config.batch_size // every_k)
         )
         actions_batched = einops.rearrange(
-            actions, "(r b) t d -> r b t d", b=(minibatch // every_k)
+            actions, "(r b) t d -> r b t d", b=(vibe_config.batch_size // every_k)
         )
 
         rollout_results_batched = (states_batched, actions_batched)
@@ -289,7 +260,7 @@ def do_rollout(carry_pack, _):
         # jax.profiler.save_device_memory_profile("memory.prof")
 
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, epochs)
+    rngs = jax.random.split(rng, vibe_config.epochs)
 
     rng, key = jax.random.split(key)
     init = (rng, 0, vibe_state)
@@ -298,7 +269,9 @@ def do_rollout(carry_pack, _):
         lambda rollout, _: print(f"Rollout {rollout}"), rollout_i
     )
 
-    (_, _, vibe_state), infos = jax.lax.scan(do_epoch, init, None, length=epochs)
+    (_, _, vibe_state), infos = jax.lax.scan(
+        do_epoch, init, None, length=vibe_config.epochs
+    )
 
     # jax.experimental.host_callback.id_tap(dump_infos_for_tap, (infos, rollout_i))
 
@@ -308,7 +281,9 @@ def do_rollout(carry_pack, _):
 rng, key = jax.random.split(key)
 init = (rng, jnp.array(0), vibe_state)
 
-(_, _, vibe_state), _ = jax.lax.scan(do_rollout, init, None, length=rollouts)
+(_, _, vibe_state), _ = jax.lax.scan(
+    do_rollout, init, None, length=vibe_config.rollouts
+)
 
 
 jax.debug.print("Done!")
