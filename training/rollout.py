@@ -38,10 +38,7 @@ def collect_rollout(
         control = jnp.concatenate([jnp.zeros(3), action])
         q, qd = step(q, qd, mass_config, shape_config, control, dt / substep)
 
-        # jax.debug.print("Whomp!")
         return (q, qd, action, key, i + 1), (q, qd, action)
-
-    jax.debug.print("Scanning!")
 
     _, (q_result_sub, qd_result_sub, action_result_sub) = jax.lax.scan(
         scanf,
@@ -60,21 +57,3 @@ def collect_rollout(
     states = rearrange([qs, qds], "i t d -> t (i d)")
 
     return states, actions
-
-
-# def flatten_rollout_result(rollout_result):
-#     return [
-#         rollout_result.states,
-#         rollout_result.actions,
-#     ], None
-
-
-# def unflatten_rollout_result(aux, flat_rollout_result):
-#     return RolloutResult(*flat_rollout_result)
-
-
-# register_pytree_node(
-#     RolloutResult,
-#     flatten_rollout_result,
-#     unflatten_rollout_result,
-# )

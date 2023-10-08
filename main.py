@@ -21,17 +21,12 @@ from einops import einops, einsum
 import matplotlib.pyplot as plt
 
 from embeds import EmbeddingLayer
-from rollout import collect_rollout
-from training import (
-    create_train_state,
-    train_step,
-    compute_metrics,
-    dump_infos,
-    dump_to_wandb,
-    make_info_msgs,
-    merge_info_msgs,
+from training.rollout import collect_rollout
+from training.vibe_state import (
+    VibeState,
+    TrainConfig,
 )
-from nets import (
+from training.nets import (
     StateEncoder,
     ActionEncoder,
     TransitionModel,
@@ -40,7 +35,9 @@ from nets import (
     encoded_state_dim,
     encoded_action_dim,
 )
-from policy import max_dist_policy, random_policy
+
+from training.train import train_step, dump_to_wandb
+from policy import random_policy  # , max_dist_policy
 
 import timeit
 
@@ -50,7 +47,8 @@ from contextlib import redirect_stdout
 
 import wandb
 
-shutil.rmtree("infos", ignore_errors=True)
+# from jax import config
+# config.update("jax_disable_jit", True)
 
 # Generate random key
 key = jax.random.PRNGKey(1)
@@ -64,98 +62,45 @@ bias_forces = jax.jit(bias_forces)
 mass_config = jnp.array([1.0, 0.25, 0.25, 0.04, 0.01, 0.01])
 shape_config = jnp.array([1.0, 0.25, 0.25])
 
-envs = 1024
-
 rng, key = jax.random.split(key)
 home_q = jnp.array([0, 0, -0.0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
-# home_q = jnp.array([0, 0, -0.0, -jnp.pi, -0.0, -jnp.pi, 0.0], dtype=jnp.float32)
-start_q = home_q  # + jax.random.normal(rng, (envs, 7)) * 0.25
+start_q = home_q
 
-# rng, key = jax.random.split(key)
 qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
-# qd = (
-#     jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
-#     + jax.random.normal(rng, (envs, 7)) * 0.1
-# )
-
-dt = 0.02
-substep = 2
-total_time = 2.5
 
 
 ### Set up RL stuff
 
-state_embedding_layer = EmbeddingLayer(256)
-action_embedding_layer = EmbeddingLayer(128)
+learning_rate = float(1e-5)
+every_k = 1
 
-# rng, key = jax.random.split(key)
-
-# params = state_encoder.init(rng, q)
-# z_state = state_encoder.apply(params, q)
-
-state_embeddings = EmbeddingLayer(encoded_state_dim)
-action_embeddings = EmbeddingLayer(encoded_action_dim)
-
-state_encoder = StateEncoder()
-action_encoder = ActionEncoder()
-transition_model = TransitionModel(n=1e4, latent_dim=128)
-state_decoder = StateDecoder()
-action_decoder = ActionDecoder()
-
-learning_rates = {
-    "state_encoder": 1e-5,
-    "action_encoder": 1e-5,
-    "transition_model": 1e-6,
-    "state_decoder": 1e-5,
-    "action_decoder": 1e-5,
-}
-
-every_k = 8
-
-rng, key = jax.random.split(key)
-state_encoder_state = create_train_state(
-    state_encoder,
-    [14],
-    rng,
-    learning_rate=learning_rates["state_encoder"],
-    every_k=every_k,
+vibe_config = TrainConfig(
+    learning_rate=learning_rate,
+    optimizer=optax.MultiSteps(
+        optax.chain(
+            optax.clip_by_global_norm(10.0),
+            optax.lion(learning_rate=learning_rate),
+        ),
+        every_k_schedule=every_k,
+    ),
+    
+    state_encoder=StateEncoder(),
+    action_encoder=ActionEncoder(),
+    transition_model=TransitionModel(1e4, 256),
+    state_decoder=StateDecoder(),
+    action_decoder=ActionDecoder(),
+    
+    batch_size=256,
+    traj_per_rollout=2048,
+    reconstruction_weight=1.0,
+    forward_weight=1.0,
+    rollout_length=5.0,
+    dt=0.02,
+    substep=2,
 )
 
 rng, key = jax.random.split(key)
-action_encoder_state = create_train_state(
-    action_encoder,
-    [4, encoded_state_dim],
-    rng,
-    learning_rate=learning_rates["action_encoder"],
-    every_k=every_k,
-)
-
-rng, key = jax.random.split(key)
-transition_model_state = create_train_state(
-    transition_model,
-    [(16, encoded_state_dim), (16, encoded_action_dim), (16,)],
-    rng,
-    learning_rate=learning_rates["transition_model"],
-    every_k=every_k,
-)
-
-rng, key = jax.random.split(key)
-state_decoder_state = create_train_state(
-    state_decoder,
-    [encoded_state_dim],
-    rng,
-    learning_rate=learning_rates["state_decoder"],
-    every_k=every_k,
-)
-
-rng, key = jax.random.split(key)
-action_decoder_state = create_train_state(
-    action_decoder,
-    [encoded_action_dim, encoded_state_dim],
-    rng,
-    learning_rate=learning_rates["action_decoder"],
-    every_k=every_k,
-)
+vibe_state = VibeState.init(rng, vibe_config)
 
 action_bounds = jnp.array([0.5, 0.5, 0.5, 0.5])
 
@@ -187,7 +132,7 @@ policy = jax.tree_util.Partial(policy)
 rng, key = jax.random.split(key)
 rngs = jax.random.split(rng, start_q.shape[:-1])
 
-rollout_result = None
+# rollout_result = None
 
 info_folder = "infos"
 jax_log_path = os.path.join(info_folder, "jax_log.txt")
@@ -222,18 +167,9 @@ trajectories_per_rollout = 4096
 epochs = 64
 minibatch = 256
 
-config = {
-    "learning_rates": learning_rates,
-    "loss_weights": loss_weights,
-    "rollouts": rollouts,
-    "trajectories_per_rollout": trajectories_per_rollout,
-    "epochs": epochs,
-    "minibatch": minibatch,
-}
-
 wandb.init(
     project="go_by_vibes",
-    config=config,
+    config=vibe_config.make_dict(),
     # mode="disabled",
 )
 
@@ -241,22 +177,15 @@ wandb.init(
 def dump_infos_for_tap(tap_pack, _):
     infos, rollout = tap_pack
     dump_infos([info_folder], infos, rollout, every_k)
-    
+
+
 def dump_to_wandb_for_tap(tap_pack, _):
     infos, chunk_i = tap_pack
     dump_to_wandb(infos, chunk_i, every_k)
 
 
 def do_rollout(carry_pack, _):
-    (
-        key,
-        rollout_i,
-        state_encoder_state,
-        action_encoder_state,
-        transition_model_state,
-        state_decoder_state,
-        action_decoder_state,
-    ) = carry_pack
+    (key, rollout_i, vibe_state) = carry_pack
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, trajectories_per_rollout)
@@ -267,9 +196,9 @@ def do_rollout(carry_pack, _):
         mass_config,
         shape_config,
         policy,
-        dt,
-        substep,
-        int(total_time / dt),
+        vibe_config.dt,
+        vibe_config.substep,
+        int(vibe_config.rollout_length / vibe_config.dt),
         rngs,
     )
 
@@ -280,11 +209,7 @@ def do_rollout(carry_pack, _):
         (
             key,
             epoch,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            state_decoder_state,
-            action_decoder_state,
+            vibe_state,
         ) = carry_pack
 
         # shuffle the data
@@ -302,11 +227,7 @@ def do_rollout(carry_pack, _):
             (
                 key,
                 chunk_i,
-                state_encoder_state,
-                action_encoder_state,
-                transition_model_state,
-                state_decoder_state,
-                action_decoder_state,
+                vibe_state,
             ) = carry
 
             rollout_result_batch = (
@@ -316,23 +237,14 @@ def do_rollout(carry_pack, _):
 
             rng, key = jax.random.split(key)
             (
-                state_encoder_state,
-                action_encoder_state,
-                transition_model_state,
-                state_decoder_state,
-                action_decoder_state,
+                vibe_state,
                 loss_infos,
             ) = jax.jit(train_step)(
                 rng,
-                state_encoder_state,
-                action_encoder_state,
-                state_decoder_state,
-                action_decoder_state,
-                transition_model_state,
+                vibe_state,
+                vibe_config,
                 rollout_result_batch,
                 action_bounds,
-                dt,
-                loss_weights,
             )
 
             msg = None
@@ -345,15 +257,7 @@ def do_rollout(carry_pack, _):
                 dump_to_wandb_for_tap, (loss_infos, chunk_i)
             )
 
-            return (
-                key,
-                chunk_i + 1,
-                state_encoder_state,
-                action_encoder_state,
-                transition_model_state,
-                state_decoder_state,
-                action_decoder_state,
-            ), (msg, loss_infos)
+            return (key, chunk_i + 1, vibe_state), (msg, loss_infos)
 
         states_batched = einops.rearrange(
             states, "(r b) t d -> r b t d", b=(minibatch // every_k)
@@ -368,34 +272,19 @@ def do_rollout(carry_pack, _):
         init = (
             rng,
             0,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            state_decoder_state,
-            action_decoder_state,
+            vibe_state,
         )
 
         (
             _,
             _,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            state_decoder_state,
-            action_decoder_state,
-        ), (msg, loss_infos) = jax.lax.scan(
-            process_batch, init, rollout_results_batched
-        )
+            vibe_state,
+        ), (
+            msg,
+            loss_infos,
+        ) = jax.lax.scan(process_batch, init, rollout_results_batched)
 
-        return (
-            key,
-            epoch + 1,
-            state_encoder_state,
-            action_encoder_state,
-            transition_model_state,
-            state_decoder_state,
-            action_decoder_state,
-        ), loss_infos
+        return (key, epoch + 1, vibe_state), loss_infos
 
         # jax.profiler.save_device_memory_profile("memory.prof")
 
@@ -403,69 +292,29 @@ def do_rollout(carry_pack, _):
     rngs = jax.random.split(rng, epochs)
 
     rng, key = jax.random.split(key)
-    init = (
-        rng,
-        0,
-        state_encoder_state,
-        action_encoder_state,
-        transition_model_state,
-        state_decoder_state,
-        action_decoder_state,
-    )
+    init = (rng, 0, vibe_state)
 
     jax.experimental.host_callback.id_tap(
         lambda rollout, _: print(f"Rollout {rollout}"), rollout_i
     )
 
-    (
-        _,
-        _,
-        state_encoder_state,
-        action_encoder_state,
-        transition_model_state,
-        state_decoder_state,
-        action_decoder_state,
-    ), infos = jax.lax.scan(do_epoch, init, None, length=epochs)
+    (_, _, vibe_state), infos = jax.lax.scan(do_epoch, init, None, length=epochs)
 
     # jax.experimental.host_callback.id_tap(dump_infos_for_tap, (infos, rollout_i))
 
-    return (
-        key,
-        rollout_i + 1,
-        state_encoder_state,
-        action_encoder_state,
-        transition_model_state,
-        state_decoder_state,
-        action_decoder_state,
-    ), _
+    return (key, rollout_i + 1, vibe_state), _
 
 
 rng, key = jax.random.split(key)
-init = (
-    rng,
-    jnp.array(0),
-    state_encoder_state,
-    action_encoder_state,
-    transition_model_state,
-    state_decoder_state,
-    action_decoder_state,
-)
+init = (rng, jnp.array(0), vibe_state)
 
-(
-    _,
-    _,
-    state_encoder_state,
-    action_encoder_state,
-    transition_model_state,
-    state_decoder_state,
-    action_decoder_state,
-), _ = jax.lax.scan(do_rollout, init, None, length=rollouts)
+(_, _, vibe_state), _ = jax.lax.scan(do_rollout, init, None, length=rollouts)
 
 
 jax.debug.print("Done!")
 
-for i in range(16):
-    ani = animate(rollout_result[0][i, ..., :7], shape_config=shape_config, dt=dt)
-    plt.show()
+# for i in range(16):
+#     ani = animate(rollout_result[0][i, ..., :7], shape_config=shape_config, dt=dt)
+#     plt.show()
 
-pass
+# pass

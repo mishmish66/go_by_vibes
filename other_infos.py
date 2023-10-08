@@ -6,7 +6,7 @@ from jax.nn import sigmoid
 
 from einops import einsum, rearrange
 
-from nets import (
+from training.nets import (
     encoded_state_dim,
     encoded_action_dim,
     infer_states,
