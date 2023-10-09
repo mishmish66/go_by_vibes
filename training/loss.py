@@ -184,7 +184,6 @@ def composed_loss(
     )
 
     # Infer next latent states
-    # for _ in range(forward_loss_num_random_indices):
     def loss_forward_per_random_index(key):
         prev_latent_states = latent_states[:-1]
         next_latent_states = latent_states[1:]
@@ -246,6 +245,9 @@ def composed_loss(
     rngs = jax.random.split(rng, forward_loss_num_random_indices)
     forward_loss_per_random_indices = jax.vmap(loss_forward_per_random_index)(rngs)
     forward_loss = jnp.mean(forward_loss_per_random_indices, axis=0)
+    
+    # Evaluate smoothness loss:
+    neighborhood_
 
     return Losses.init(
         reconstruction_loss=reconstruction_loss,

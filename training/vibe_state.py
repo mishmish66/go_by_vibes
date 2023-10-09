@@ -53,6 +53,7 @@ class TrainConfig:
     rollouts: int
     epochs: int
     batch_size: int
+    every_k: int
     traj_per_rollout: int
     rollout_length: float
     dt: float
@@ -74,6 +75,7 @@ class TrainConfig:
         rollouts=1024,
         epochs=128,
         batch_size=256,
+        every_k=1,
         traj_per_rollout=2048,
         reconstruction_weight=1.0,
         forward_weight=1.0,
@@ -92,6 +94,7 @@ class TrainConfig:
             rollouts=rollouts,
             epochs=epochs,
             batch_size=batch_size,
+            every_k=1,
             traj_per_rollout=traj_per_rollout,
             reconstruction_weight=reconstruction_weight,
             forward_weight=forward_weight,
@@ -103,8 +106,11 @@ class TrainConfig:
     def make_dict(self):
         return {
             "learning_rate": self.learning_rate,
-            "batch_size": self.batch_size,
             "traj_per_rollout": self.traj_per_rollout,
+            "rollouts": self.rollouts,
+            "epochs": self.epochs,
+            "batch_size": self.batch_size,
+            "every_k": self.every_k,
             "rollout_length": self.rollout_length,
             "reconstruction_weight": self.reconstruction_weight,
             "forward_weight": self.forward_weight,
@@ -122,6 +128,7 @@ class TrainConfig:
             "rollouts": self.rollouts,
             "epochs": self.epochs,
             "batch_size": self.batch_size,
+            "every_k": self.every_k,
             "traj_per_rollout": self.traj_per_rollout,
             "reconstruction_weight": self.reconstruction_weight,
             "forward_weight": self.forward_weight,
@@ -143,6 +150,7 @@ class TrainConfig:
             rollouts=aux["rollouts"],
             epochs=aux["epochs"],
             batch_size=aux["batch_size"],
+            every_k=aux["every_k"],
             traj_per_rollout=aux["traj_per_rollout"],
             reconstruction_weight=aux["reconstruction_weight"],
             forward_weight=aux["forward_weight"],
@@ -240,14 +248,3 @@ class VibeState(struct.PyTreeNode):
             opt_state=new_opt_state,
         ).assign_dict(new_params)
 
-
-# def multiloss(loss_fn, multiness=16):
-#     def wrapped_loss_fn(key, *args):
-#         rngs = jax.random.split(key, multiness)
-#         loss_runs = jax.vmap(
-#             loss_fn,
-#             (0, *((None,) * len(args))),
-#         )(rngs, *args)
-#         return jnp.mean(loss_runs)
-
-#     return wrapped_loss_fn

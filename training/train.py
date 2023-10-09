@@ -75,6 +75,8 @@ def train_step(
     )
 
 
-def dump_to_wandb(infos, chunk_i, every_k):
+def dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, train_config: TrainConfig):
+    steps_per_epoch = train_config.traj_per_rollout // train_config.batch_size
+    step = rollout_i * train_config.epochs + epoch_i * steps_per_epoch + chunk_i // train_config.every_k
     if chunk_i % every_k == 0:
         wandb.log(infos)

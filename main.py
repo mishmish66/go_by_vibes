@@ -65,7 +65,7 @@ shape_config = jnp.array([1.0, 0.25, 0.25])
 
 rng, key = jax.random.split(key)
 home_q = jnp.array([0, 0, -0.0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
-start_q = home_q
+start_q = home_q + jax.random.uniform(rng, shape=(7,), minval=-0.4, maxval=0.4)
 
 qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 
@@ -139,9 +139,10 @@ wandb.init(
     # mode="disabled",
 )
 
+
 def dump_to_wandb_for_tap(tap_pack, _):
-    infos, chunk_i = tap_pack
-    dump_to_wandb(infos, chunk_i, every_k)
+    infos, rollout_i, epoch_i, chunk_i = tap_pack
+    dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, every_k)
 
 
 def do_rollout(carry_pack, _):
@@ -192,7 +193,7 @@ def do_rollout(carry_pack, _):
 
             rollout_result_batch = (
                 rollout_result_batch[0],
-                rollout_result_batch[1][:, :-1],
+                rollout_result_batch[1][..., :-1, :],
             )
 
             rng, key = jax.random.split(key)
@@ -210,7 +211,11 @@ def do_rollout(carry_pack, _):
             msg = None
 
             jax.experimental.host_callback.id_tap(
-                dump_to_wandb_for_tap, (loss_infos, chunk_i)
+                lambda chunk, _: print(f"Chunk {chunk}"), chunk_i
+            )
+
+            jax.experimental.host_callback.id_tap(
+                dump_to_wandb_for_tap, (loss_infos, rollout_i, epoch, chunk_i)
             )
 
             return (key, chunk_i + 1, vibe_state), (msg, loss_infos)

@@ -1,5 +1,4 @@
 import jax
-
 import jax.numpy as jnp
 
 from .gen.mass_matrix import mass_matrix
@@ -16,6 +15,8 @@ from physics.visualize import animate
 from einops import einops, einsum
 
 import matplotlib.pyplot as plt
+
+from dataclasses import dataclass
 
 
 def penetration(positions, position_grads=None):
@@ -90,16 +91,6 @@ def step(
     contact_tangents_now = tangent_amount(positions)
     contact_normal_grads_now = contact_normal_grads(positions, position_grads)
     contact_tangent_grads_now = contact_tangent_grads(positions, position_grads)
-    
-    # Force the largest magnitude value in contact_normal_grads_now to be at least 0.01
-    # def normalize_grad(grad):
-    #     mags = jnp.abs(grad)
-    #     max_mag = jnp.max(mags)
-    #     factor = jnp.maximum(max_mag, 0.01) / max_mag
-        
-    #     return grad * factor
-    
-    # jax.vmap(normalize_grad)(contact_normal_grads_now)
 
     bias_force_now = bias_forces(q, qd, mass_config, shape_config, 9.81)
     # add a joint damper to the bias force
@@ -157,3 +148,21 @@ def step(
     q = q + qd * dt
 
     return (q, qd)
+
+@jax.tree_util.register_pytree_node_class
+@dataclass
+class SimConfig:
+    shape_config: any
+    mass_config: any
+    dt: any
+    
+    def tree_flatten(self):
+        return [self.shape_config, self.mass_config, self.dt], None
+    
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(
+            shape_config=children[0],
+            mass_config=children[1],
+            dt=children[2],
+        )
