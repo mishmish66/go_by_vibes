@@ -58,8 +58,6 @@ def train_step(
         loss_for_grad, has_aux=True
     )(vibe_state.extract_params(), rng)
 
-    grad_norms = jax.tree_map(lambda x: jnp.linalg.norm(jnp.ravel(x)), vibe_grad)
-
     id_tap(
         lambda loss_infos, _: print(
             f"reconstruction_loss: {loss_infos['reconstruction_loss']}\n"
@@ -68,20 +66,6 @@ def train_step(
         ),
         loss_infos,
     )
-
-    # print grads
-    # id_tap(
-    #     lambda grad_norms, _: print(
-    #         f"state_encoder_params: {grad_norms['state_encoder_params']}\n"
-    #         + f"action_encoder_params: {grad_norms['action_encoder_params']}\n"
-    #         + f"transition_model_params: {grad_norms['transition_model_params']}\n"
-    #         + f"state_decoder_params: {grad_norms['state_decoder_params']}\n"
-    #         + f"action_decoder_params: {grad_norms['action_decoder_params']}\n"
-    #     ),
-    #     grad_norms,
-    # )
-    
-    # jax.debug.breakpoint()
 
     vibe_state = vibe_state.apply_gradients(vibe_grad, train_config)
 

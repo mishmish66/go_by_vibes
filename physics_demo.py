@@ -6,7 +6,7 @@ from physics.visualize import animate
 
 import jax
 import jax.numpy as jnp
-from einops import einops, einsum
+from einops import einops, einsum, rearrange
 import matplotlib.pyplot as plt
 
 import timeit
@@ -29,14 +29,14 @@ kp = jnp.array([0, 0, 0, 10.0, 10.0, 10.0, 10.0], dtype=jnp.float32)
 kd = jnp.array([0, 0, 0, 0.1, 0.1, 0.1, 0.1], dtype=jnp.float32)
 
 jax.random.PRNGKey(0)
-envs = 8
+envs = 16
 rng, key = jax.random.split(key)
 
-q = target + jax.random.normal(rng, (envs, 7)) * 0.01
+q = target + jax.random.uniform(rng, (envs, 7)) * 0.5
 rng, key = jax.random.split(key)
 qd = (
     jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
-    + jax.random.normal(rng, (envs, 7)) * 0.001
+    + jax.random.normal(rng, (envs, 7)) * 0.01
 )
 
 dt = 0.02
@@ -47,28 +47,37 @@ sim_dt = dt / substep
 vmap_physics_step = jax.vmap(step, (0, 0, None, None, 0, None))
 
 
-def control(q, qd):
-    return (q - target) * kp + qd * kd
+def control(key, q, qd):
+    result = jnp.zeros((envs, 7))
+    result = result.at[:, 3:].set(
+        jax.random.uniform(key, (envs, 4), minval=-0.5, maxval=0.5)
+    )
+
+    return result
+    # return (q - target) * kp + qd * kd
 
 
 def scanf(carry, _):
-    q, qd = carry
-    control_t = control(q, qd)
+    key, q, qd = carry
+    rng, key = jax.random.split(key)
+    control_t = control(rng, q, qd)
     q, qd = vmap_physics_step(q, qd, mass_config, shape_config, control_t, sim_dt)
-    return (q, qd), q
+    return (key, q, qd), q
 
-_, qs = jax.lax.scan(scanf, (q, qd), None, length=total_time / sim_dt)
+
+_, qs = jax.lax.scan(scanf, (rng, q, qd), None, length=total_time / sim_dt)
 
 import time
 
 start = time.time()
-_, qs = jax.lax.scan(scanf, (q, qd), None, length=total_time / sim_dt)
+rng, key = jax.random.split(key)
+_, qs = jax.lax.scan(scanf, (rng, q, qd), None, length=total_time / sim_dt)
 end = time.time()
 print(end - start)
 
+qs = rearrange(qs, "t e d -> e t d")
+qs_step = qs[:, ::substep, :]
 
-qs_step = qs[::substep, 0, :]
-
-ani = animate(qs_step, shape_config=shape_config, dt=dt)
-
-plt.show()
+for i in range(envs):
+    ani = animate(qs_step[i], shape_config=shape_config, dt=dt)
+    plt.show()

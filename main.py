@@ -89,10 +89,10 @@ vibe_config = TrainConfig(
     transition_model=TransitionModel(1e4, 256),
     state_decoder=StateDecoder(),
     action_decoder=ActionDecoder(),
-    rollouts=4096,
-    epochs=256,
+    rollouts=1024,
+    epochs=8,
     batch_size=256,
-    traj_per_rollout=2048,
+    traj_per_rollout=1024,
     reconstruction_weight=1.0,
     forward_weight=0.0,  # 1.0,
     rollout_length=0.2,
@@ -133,22 +133,11 @@ policy = jax.tree_util.Partial(policy)
 rng, key = jax.random.split(key)
 rngs = jax.random.split(rng, start_q.shape[:-1])
 
-# rollout_result = None
-
-info_folder = "infos"
-jax_log_path = os.path.join(info_folder, "jax_log.txt")
-
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
     # mode="disabled",
 )
-
-
-def dump_infos_for_tap(tap_pack, _):
-    infos, rollout = tap_pack
-    dump_infos([info_folder], infos, rollout, every_k)
-
 
 def dump_to_wandb_for_tap(tap_pack, _):
     infos, chunk_i = tap_pack
@@ -219,10 +208,6 @@ def do_rollout(carry_pack, _):
             )
 
             msg = None
-
-            jax.experimental.host_callback.id_tap(
-                lambda chunk, _: print(f"Chunk {chunk}"), chunk_i
-            )
 
             jax.experimental.host_callback.id_tap(
                 dump_to_wandb_for_tap, (loss_infos, chunk_i)

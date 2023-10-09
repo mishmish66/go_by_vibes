@@ -191,12 +191,6 @@ class TransitionModel(nn.Module):
     def setup(self):
         self.temporal_encoder = TemporalEncoder(n=self.n)
 
-        # temporal_encoder_params = self.temporal_encoder.init(
-        #     jax.random.PRNGKey(0),
-        #     jnp.zeros((1, self.latent_dim)),
-        #     jnp.zeros([1, 1]),
-        # )
-
         self.state_expander = nn.Dense(self.latent_dim, name="SE")
         self.action_expander = nn.Dense(self.latent_dim, name="AE")
 
