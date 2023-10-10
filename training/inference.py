@@ -179,7 +179,6 @@ def decode_action(
 def get_latent_state_prime_gaussians(
     latent_states,
     latent_actions,
-    dt,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
     mask=None,
@@ -188,7 +187,7 @@ def get_latent_state_prime_gaussians(
         vibe_state.transition_model_params,
         latent_states,
         latent_actions,
-        jnp.arange(latent_actions.shape[0]) * dt,
+        jnp.arange(latent_actions.shape[0]) * vibe_config.env_config.dt,
         mask,
     )
 
@@ -205,18 +204,18 @@ def infer_states(
     key,
     latent_states,
     latent_actions,
-    dt,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
+    mask=None,
 ):
     rng, key = jax.random.split(key)
 
     latent_state_prime_gaussians = get_latent_state_prime_gaussians(
         latent_states,
         latent_actions,
-        dt,
         vibe_state,
         vibe_config,
+        mask,
     )
 
     inferred_states = jax.vmap(sample_gaussian, (0, 0))(

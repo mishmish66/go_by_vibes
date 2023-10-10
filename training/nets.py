@@ -8,8 +8,9 @@ from flax import linen as nn
 
 from einops import einsum, rearrange
 
-encoded_state_dim = 32
-encoded_action_dim = 16
+encoded_state_dim = 64
+encoded_action_dim = 64
+
 
 class FreqLayer(nn.Module):
     out_dim: jax.Array
@@ -65,19 +66,27 @@ class StateEncoder(nn.Module):
 
 
 class StateDecoder(nn.Module):
-    @nn.compact
+    def setup(self, state_dim):
+        self.state_dim = state_dim
+        self.dense_layers = [
+            nn.Dense(d, name=f"FC{i}")
+            for i, d in enumerate(
+                [
+                    128,
+                    64,
+                    64,
+                    self.state_dim * 2,
+                ]
+            )
+        ]
+
     def __call__(self, x) -> Any:
-        x = nn.Dense(128, name="FC1")(x)
-        x = nn.relu(x)
-        x = nn.Dense(128, name="FC2")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC3")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC4")(x)
-        x = nn.relu(x)
-        x = nn.Dense(28, name="FC5")(x)
-        x_mean = x[..., :14]
-        x_std = x[..., 14:]
+        for layer in self.dense_layers[:-1]:
+            x = layer(x)
+            x = nn.relu(x)
+        x = self.dense_layers[-1](x)
+        x_mean = x[..., : self.state_dim]
+        x_std = x[..., self.state_dim :]
         x_std = nn.softplus(x_std)
         x = jnp.concatenate([x_mean, x_std], axis=-1)
         return x
@@ -85,7 +94,7 @@ class StateDecoder(nn.Module):
 
 class ActionEncoder(nn.Module):
     def setup(self):
-        self.freq_layer = FreqLayer(out_dim=32)
+        self.freq_layer = FreqLayer(out_dim=256)
 
         self.dense_layers = [
             nn.Dense(dim, name=f"FC{i}")
@@ -101,7 +110,6 @@ class ActionEncoder(nn.Module):
         ]
 
     def __call__(self, action, latent_state) -> Any:
-        
         freq_action = self.freq_layer(action)
         x = jnp.concatenate([freq_action, latent_state], axis=-1)
 
@@ -119,20 +127,29 @@ class ActionEncoder(nn.Module):
 
 
 class ActionDecoder(nn.Module):
-    @nn.compact
-    def __call__(self, latent_action, latent_state) -> Any:
-        x = jnp.concatenate([latent_action, latent_state], axis=-1)
-        x = nn.Dense(128, name="FC1")(x)
-        x = nn.relu(x)
-        x = nn.Dense(128, name="FC2")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC3")(x)
-        x = nn.relu(x)
-        x = nn.Dense(64, name="FC4")(x)
-        x = nn.relu(x)
-        x = nn.Dense(8, name="FC5")(x)
-        x_mean = x[..., :4]
-        x_std = x[..., 4:]
+    def setup(self, act_dim):
+        self.act_dim = act_dim
+        self.dense_layers = [
+            nn.Dense(d, name=f"FC{i}")
+            for i, d in enumerate(
+                [
+                    128,
+                    128,
+                    64,
+                    64,
+                    8,
+                    self.act_dim * 2,
+                ]
+            )
+        ]
+
+    def __call__(self, x) -> Any:
+        for layer in self.dense_layers[:-1]:
+            x = layer(x)
+            x = nn.relu(x)
+        x = self.dense_layers[-1](x)
+        x_mean = x[..., : self.act_dim]
+        x_std = x[..., self.act_dim :]
         x_std = nn.softplus(x_std)
         x = jnp.concatenate([x_mean, x_std], axis=-1)
         return x

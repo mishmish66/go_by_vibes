@@ -36,6 +36,8 @@ from training.nets import (
     encoded_action_dim,
 )
 
+from unitree_go1 import UnitreeGo1
+
 from training.train import train_step, dump_to_wandb
 from policy import random_policy  # , max_dist_policy
 
@@ -75,7 +77,9 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 learning_rate = float(1e-5)
 every_k = 1
 
-vibe_config = TrainConfig(
+env_cls = UnitreeGo1
+
+vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
     optimizer=optax.MultiSteps(
         optax.chain(
@@ -89,42 +93,25 @@ vibe_config = TrainConfig(
     transition_model=TransitionModel(1e4, 256),
     state_decoder=StateDecoder(),
     action_decoder=ActionDecoder(),
+    env_config=env_cls.get_config(),
     rollouts=1024,
     epochs=8,
     batch_size=256,
     traj_per_rollout=1024,
+    rollout_length=250,
     reconstruction_weight=1.0,
-    forward_weight=0.0,  # 1.0,
-    rollout_length=0.2,
-    dt=0.02,
-    substep=2,
+    forward_weight=1.0,
 )
 
 rng, key = jax.random.split(key)
 vibe_state = VibeState.init(rng, vibe_config)
 
-action_bounds = jnp.array([0.5, 0.5, 0.5, 0.5])
-
 
 def policy(key, q, qd):
-    state = jnp.concatenate([q, qd], axis=-1)
-    target_state = jnp.concatenate([home_q, jnp.zeros_like(home_q)], axis=-1)
-
     rng, key = jax.random.split(key)
-    # action = max_dist_policy(
-    #     rng,
-    #     state_encoder_state,
-    #     action_decoder_state,
-    #     transition_model_state,
-    #     state,
-    #     window=8,  # 128,
-    #     dt=dt,
-    # )
-    action = random_policy(rng, action_bounds)
+    action = random_policy(rng, vibe_config.env_config.action_bounds)
 
-    clipped_action = jnp.clip(action, -5.0, 5.0)
-
-    return clipped_action
+    return action
 
 
 policy = jax.tree_util.Partial(policy)
@@ -205,7 +192,6 @@ def do_rollout(carry_pack, _):
                 vibe_state,
                 vibe_config,
                 rollout_result_batch,
-                action_bounds,
             )
 
             msg = None

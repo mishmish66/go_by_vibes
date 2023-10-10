@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import mujoco
 
+from training.env_config import EnvConfig
+
 
 @dataclass
 class UnitreeGo1:
@@ -16,12 +18,14 @@ class UnitreeGo1:
         cls.data = mujoco.MjData(cls.model)
 
     @classmethod
-    def step(cls, state, action):
-        cls.model.data.qpos[:] = state[: cls.model.nq]
-        cls.model.data.qvel[:] = qd
-        cls.model.data.ctrl[:] = action
+    def step(cls, state, action, config: EnvConfig):
+        cls.model.opt.timestep = config.dt / config.substep
+        cls.data.qpos[:] = state[: cls.model.nq]
+        cls.data.qvel[:] = state[cls.model.nq :]
 
-        mujoco.mj_step(cls.model, cls.data)
+        for _ in range(config.substep):
+            cls.data.ctrl[:] = action
+            mujoco.mj_step(cls.model, cls.data)
 
         return cls.make_state()
 
@@ -33,17 +37,28 @@ class UnitreeGo1:
 
     @classmethod
     def make_state(cls):
-        result = jnp.zeros(cls.model.nq * 2)
+        result = jnp.zeros(cls.model.nq + cls.model.nv)
 
         result = result.at[: cls.model.nq].set(cls.data.qpos)
         result = result.at[cls.model.nq :].set(cls.data.qvel)
 
         return result
 
+    @classmethod
+    def get_config(cls):
+        return EnvConfig(
+            action_bounds=jnp.array(cls.model.actuator_ctrlrange),
+            state_dim=cls.model.nq + cls.model.nv,
+            act_dim=cls.model.nu,
+            dt=cls.model.opt.timestep * 4,
+            substep=4,
+        )
+
 
 UnitreeGo1.class_init()
 
 
+# Testing code
 if __name__ == "__main__":
     import time
     import mujoco.viewer
@@ -60,11 +75,7 @@ if __name__ == "__main__":
             # mj_step can be replaced with code that also evaluates
             # a policy and applies a control signal before stepping the physics.
 
-            jax_state = UnitreeGo1.step(jax_state, jax_act)
-
-            # Example modification of a viewer option: toggle contact points every two seconds.
-            with viewer.lock():
-                viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = int(d.time % 2)
+            jax_state = UnitreeGo1.step(jax_state, jax_act, env_config)
 
             # Pick up changes to the physics state, apply perturbations, update options from GUI.
             viewer.sync()

@@ -17,6 +17,8 @@ from einops import einsum, rearrange, reduce
 
 from physics import step
 
+from .env_config import EnvConfig
+
 from .nets import (
     encoded_state_dim,
     encoded_action_dim,
@@ -28,8 +30,6 @@ from .nets import (
 )
 
 from .rollout import collect_rollout
-
-# from other_infos import make_other_infos
 
 from dataclasses import dataclass
 
@@ -50,14 +50,14 @@ class TrainConfig:
     state_decoder: any
     action_decoder: any
 
+    env_config: any
+
     rollouts: int
     epochs: int
     batch_size: int
     every_k: int
     traj_per_rollout: int
-    rollout_length: float
-    dt: float
-    substep: int
+    rollout_length: int
 
     reconstruction_weight: any
     forward_weight: any
@@ -72,16 +72,15 @@ class TrainConfig:
         transition_model,
         state_decoder,
         action_decoder,
+        env_config,
         rollouts=1024,
         epochs=128,
         batch_size=256,
         every_k=1,
         traj_per_rollout=2048,
+        rollout_length=250,
         reconstruction_weight=1.0,
         forward_weight=1.0,
-        rollout_length=5.0,
-        dt=0.02,
-        substep=2,
     ):
         return cls(
             learning_rate=learning_rate,
@@ -94,13 +93,11 @@ class TrainConfig:
             rollouts=rollouts,
             epochs=epochs,
             batch_size=batch_size,
-            every_k=1,
+            every_k=every_k,
             traj_per_rollout=traj_per_rollout,
+            rollout_length=rollout_length,
             reconstruction_weight=reconstruction_weight,
             forward_weight=forward_weight,
-            rollout_length=rollout_length,
-            dt=dt,
-            substep=substep,
         )
 
     def make_dict(self):
@@ -130,11 +127,9 @@ class TrainConfig:
             "batch_size": self.batch_size,
             "every_k": self.every_k,
             "traj_per_rollout": self.traj_per_rollout,
+            "rollout_length": self.rollout_length,
             "reconstruction_weight": self.reconstruction_weight,
             "forward_weight": self.forward_weight,
-            "rollout_length": self.rollout_length,
-            "dt": self.dt,
-            "substep": self.substep,
         }
 
     @classmethod
@@ -152,11 +147,9 @@ class TrainConfig:
             batch_size=aux["batch_size"],
             every_k=aux["every_k"],
             traj_per_rollout=aux["traj_per_rollout"],
+            rollout_length=aux["rollout_length"],
             reconstruction_weight=aux["reconstruction_weight"],
             forward_weight=aux["forward_weight"],
-            rollout_length=aux["rollout_length"],
-            dt=aux["dt"],
-            substep=aux["substep"],
         )
 
 
@@ -178,11 +171,11 @@ class VibeState(struct.PyTreeNode):
 
         state_encoder_params = train_config.state_encoder.init(
             rngs[0],
-            jnp.ones(14),
+            jnp.ones(train_config.env_config.state_dim),
         )
         action_encoder_params = train_config.action_encoder.init(
             rngs[1],
-            jnp.ones(4),
+            jnp.ones(train_config.env_config.act_dim),
             jnp.ones(encoded_state_dim),
         )
         transition_model_params = train_config.transition_model.init(
@@ -195,11 +188,13 @@ class VibeState(struct.PyTreeNode):
         state_decoder_params = train_config.state_decoder.init(
             rngs[3],
             jnp.ones(encoded_state_dim),
+            state_dim=train_config.env_config.state_dim,
         )
         action_decoder_params = train_config.action_decoder.init(
             rngs[4],
             jnp.ones(encoded_action_dim),
             jnp.ones(encoded_state_dim),
+            act_dim=train_config.env_config.act_dim,
         )
 
         temp_state = cls(
@@ -247,4 +242,3 @@ class VibeState(struct.PyTreeNode):
             step=self.step + 1,
             opt_state=new_opt_state,
         ).assign_dict(new_params)
-
