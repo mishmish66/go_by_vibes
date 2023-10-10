@@ -66,8 +66,9 @@ class StateEncoder(nn.Module):
 
 
 class StateDecoder(nn.Module):
-    def setup(self, state_dim):
-        self.state_dim = state_dim
+    state_dim: any
+
+    def setup(self):
         self.dense_layers = [
             nn.Dense(d, name=f"FC{i}")
             for i, d in enumerate(
@@ -127,8 +128,9 @@ class ActionEncoder(nn.Module):
 
 
 class ActionDecoder(nn.Module):
-    def setup(self, act_dim):
-        self.act_dim = act_dim
+    act_dim: any
+
+    def setup(self):
         self.dense_layers = [
             nn.Dense(d, name=f"FC{i}")
             for i, d in enumerate(
@@ -143,7 +145,8 @@ class ActionDecoder(nn.Module):
             )
         ]
 
-    def __call__(self, x) -> Any:
+    def __call__(self, latent_action, latent_state) -> Any:
+        x = jnp.concatenate([latent_action, latent_state], axis=-1)
         for layer in self.dense_layers[:-1]:
             x = layer(x)
             x = nn.relu(x)

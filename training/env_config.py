@@ -32,14 +32,14 @@ class EnvConfig:
         )
 
     def tree_flatten(self):
-        return None, (
+        return (
             self.action_bounds,
             self.state_dim,
             self.act_dim,
             self.dt,
             self.substep,
-        )
+        ), None
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(*aux_data)
+        return cls(*children)

@@ -19,18 +19,24 @@ class UnitreeGo1:
         cls.home_state = jnp.array(cls.host_get_home_state())
 
     @classmethod
-    def step(cls, state, action):
-        cls.model.data.qpos[:] = state[: cls.model.nq]
-        cls.model.data.qvel[:] = qd
-        cls.model.data.ctrl[:] = action
+    def host_step(cls, state, action, env_config: EnvConfig):
+        cls.model.opt.timestep = env_config.dt / env_config.substep
+        cls.data.qpos[:] = state[: cls.model.nq]
+        cls.data.qvel[:] = state[cls.model.nq :]
 
-        mujoco.mj_step(cls.model, cls.data)
+        for _ in range(env_config.substep):
+            cls.data.ctrl[:] = action
+            mujoco.mj_step(cls.model, cls.data)
 
         return cls.host_make_state()
 
     @classmethod
-    def step(cls, state, action):
-        return jax.pure_callback(cls.host_step, state, action)
+    def step(cls, state, action, env_config: EnvConfig):
+        return jax.pure_callback(
+            cls.host_step,
+            state,
+            *(state, action, env_config),
+        )
 
     @classmethod
     def host_get_home_state(cls):
@@ -43,13 +49,8 @@ class UnitreeGo1:
         return cls.home_state
 
     @classmethod
-    def make_state(cls):
-        result = jnp.zeros(cls.model.nq * 2)
-
-        result = result.at[: cls.model.nq].set(cls.data.qpos)
-        result = result.at[cls.model.nq :].set(cls.data.qvel)
-
-        return result
+    def host_make_state(cls):
+        return np.concatenate([cls.data.qpos, cls.data.qvel], dtype=np.float32)
 
     @classmethod
     def get_config(cls):
@@ -75,6 +76,7 @@ if __name__ == "__main__":
 
         jax_state = UnitreeGo1.get_home_state()
         jax_act = jnp.zeros(UnitreeGo1.model.nu)
+        env_config = UnitreeGo1.get_config()
 
         while viewer.is_running() and time.time() - start < 30:
             step_start = time.time()

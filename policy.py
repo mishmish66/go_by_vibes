@@ -17,7 +17,7 @@ from training.loss import sample_gaussian
 
 def random_action(key, action_bounds):
     rng, key = jax.random.split(key)
-    random_nums = jax.random.uniform(rng, (count, action_bounds.shape[0]))
+    random_nums = jax.random.uniform(rng, (action_bounds.shape[0],))
     scaled = random_nums * (action_bounds[:, 1] - action_bounds[:, 0])
     scaled_and_shifted = scaled + action_bounds[:, 0]
 

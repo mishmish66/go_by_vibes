@@ -90,6 +90,7 @@ class TrainConfig:
             transition_model=transition_model,
             state_decoder=state_decoder,
             action_decoder=action_decoder,
+            env_config=env_config,
             rollouts=rollouts,
             epochs=epochs,
             batch_size=batch_size,
@@ -122,6 +123,7 @@ class TrainConfig:
             "transition_model": self.transition_model,
             "state_decoder": self.state_decoder,
             "action_decoder": self.action_decoder,
+            "env_config": self.env_config,
             "rollouts": self.rollouts,
             "epochs": self.epochs,
             "batch_size": self.batch_size,
@@ -142,6 +144,7 @@ class TrainConfig:
             transition_model=aux["transition_model"],
             state_decoder=aux["state_decoder"],
             action_decoder=aux["action_decoder"],
+            env_config=aux["env_config"],
             rollouts=aux["rollouts"],
             epochs=aux["epochs"],
             batch_size=aux["batch_size"],
@@ -188,13 +191,11 @@ class VibeState(struct.PyTreeNode):
         state_decoder_params = train_config.state_decoder.init(
             rngs[3],
             jnp.ones(encoded_state_dim),
-            state_dim=train_config.env_config.state_dim,
         )
         action_decoder_params = train_config.action_decoder.init(
             rngs[4],
             jnp.ones(encoded_action_dim),
             jnp.ones(encoded_state_dim),
-            act_dim=train_config.env_config.act_dim,
         )
 
         temp_state = cls(

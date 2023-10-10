@@ -209,7 +209,6 @@ def composed_loss(
         latent_states_prime_gaussians = get_latent_state_prime_gaussians(
             prev_latent_states,
             latent_actions,
-            train_config.dt,
             vibe_state,
             train_config,
             known_prev_latent_state_mask,
@@ -247,7 +246,7 @@ def composed_loss(
     forward_loss = jnp.mean(forward_loss_per_random_indices, axis=0)
     
     # Evaluate smoothness loss:
-    neighborhood_
+    # neighborhood_
 
     return Losses.init(
         reconstruction_loss=reconstruction_loss,

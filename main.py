@@ -7,7 +7,6 @@ from physics.visualize import animate
 import jax
 import jax.numpy as jnp
 import jax.profiler
-from clu import metrics
 import flax
 from flax import linen as nn
 from flax import struct
@@ -68,9 +67,7 @@ shape_config = jnp.array([1.0, 0.25, 0.25])
 rng, key = jax.random.split(key)
 home_q = jnp.array([0, 0, -0.0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
 start_q = home_q + jax.random.uniform(rng, shape=(7,), minval=-0.4, maxval=0.4)
-
 qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
-
 
 ### Set up RL stuff
 
@@ -78,6 +75,8 @@ learning_rate = float(1e-5)
 every_k = 1
 
 env_cls = UnitreeGo1
+
+env_config = env_cls.get_config()
 
 vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
@@ -91,12 +90,12 @@ vibe_config = TrainConfig.init(
     state_encoder=StateEncoder(),
     action_encoder=ActionEncoder(),
     transition_model=TransitionModel(1e4, 256),
-    state_decoder=StateDecoder(),
-    action_decoder=ActionDecoder(),
-    env_config=env_cls.get_config(),
+    state_decoder=StateDecoder(env_config.state_dim),
+    action_decoder=ActionDecoder(env_config.act_dim),
+    env_config=env_config,
     rollouts=1024,
-    epochs=8,
-    batch_size=256,
+    epochs=16,
+    batch_size=128,
     traj_per_rollout=1024,
     rollout_length=250,
     reconstruction_weight=1.0,
@@ -106,24 +105,17 @@ vibe_config = TrainConfig.init(
 rng, key = jax.random.split(key)
 vibe_state = VibeState.init(rng, vibe_config)
 
+policy = jax.tree_util.Partial(random_policy)
 
-def policy(key, q, qd):
-    rng, key = jax.random.split(key)
-    action = random_policy(rng, vibe_config.env_config.action_bounds)
-
-    return action
-
-
-policy = jax.tree_util.Partial(policy)
-
+start_state = env_cls.get_home_state()
 
 rng, key = jax.random.split(key)
-rngs = jax.random.split(rng, start_q.shape[:-1])
+rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    # mode="disabled",
+    mode="disabled",
 )
 
 
@@ -138,15 +130,12 @@ def do_rollout(carry_pack, _):
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 
-    rollout_result = jax.vmap(collect_rollout, in_axes=((None,) * 8 + (0,)))(
-        start_q,
-        qd,
-        mass_config,
-        shape_config,
+    rollout_result = jax.vmap(collect_rollout, in_axes=((None,) * 5 + (0,)))(
+        start_state,
         policy,
-        vibe_config.dt,
-        vibe_config.substep,
-        int(vibe_config.rollout_length / vibe_config.dt),
+        env_cls,
+        vibe_state,
+        vibe_config,
         rngs,
     )
 
