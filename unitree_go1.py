@@ -14,26 +14,35 @@ class UnitreeGo1:
     def class_init(cls):
         cls.model = mujoco.MjModel.from_xml_path("assets/unitree_go1/scene.xml")
         cls.data = mujoco.MjData(cls.model)
+        cls.home_state = jnp.array(cls.host_get_home_state())
 
     @classmethod
-    def step(cls, state, action):
+    def host_step(cls, state, action):
         cls.model.data.qpos[:] = state[: cls.model.nq]
-        cls.model.data.qvel[:] = qd
+        cls.model.data.qvel[:] = state[cls.model.nq :]
         cls.model.data.ctrl[:] = action
 
         mujoco.mj_step(cls.model, cls.data)
 
-        return cls.make_state()
+        return cls.host_make_state()
+
+    @classmethod
+    def step(cls, state, action):
+        return jax.pure_callback(cls.host_step, state, action)
+
+    @classmethod
+    def host_get_home_state(cls):
+        mujoco.mj_resetData(cls.model, cls.data)
+
+        return cls.host_make_state()
 
     @classmethod
     def get_home_state(cls):
-        mujoco.mj_resetData(cls.model, cls.data)
-
-        return cls.make_state()
+        return cls.home_state
 
     @classmethod
-    def make_state(cls):
-        result = jnp.zeros(cls.model.nq * 2)
+    def host_make_state(cls):
+        result = jnp.zeros(cls.model.nq + cls.model.nv)
 
         result = result.at[: cls.model.nq].set(cls.data.qpos)
         result = result.at[cls.model.nq :].set(cls.data.qvel)
