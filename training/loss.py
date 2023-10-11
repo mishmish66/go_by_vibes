@@ -13,7 +13,6 @@ from .nets import (
     encoded_state_dim,
     encoded_action_dim,
     make_inds,
-    make_mask,
 )
 
 from .vibe_state import VibeState, TrainConfig
@@ -25,6 +24,7 @@ from .inference import (
     get_latent_state_prime_gaussians,
     get_state_space_gaussian,
     get_action_space_gaussian,
+    make_mask,
 )
 
 from dataclasses import dataclass

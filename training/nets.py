@@ -205,13 +205,8 @@ class TransformerLayer(nn.Module):
 
 
 def make_inds(mask_len, first_known_i):
-    inds = jnp.arange(-first_known_i, mask_len - first_known_i)
+    inds = jnp.arange(mask_len) - first_known_i
     return inds
-
-def make_mask(mask_len, first_known_i):
-    inds = make_inds(mask_len, first_known_i)
-    mask = inds >= 0
-    return mask
 
 
 class TransitionModel(nn.Module):
@@ -245,7 +240,7 @@ class TransitionModel(nn.Module):
         first_known_action_i,
     ) -> Any:
         inds = make_inds(latent_actions.shape[0], first_known_action_i)
-        mask_time_inds = inds.at[inds < 0].set(0)
+        mask_time_inds = einsum(inds, inds < 0, "i, i->i")
 
         # Apply temporal encodings
         latent_actions_temp = jax.vmap(self.temporal_encoder, (0, 0))(

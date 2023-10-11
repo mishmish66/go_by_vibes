@@ -11,6 +11,7 @@ from .nets import (
     TransitionModel,
     StateDecoder,
     ActionDecoder,
+    make_inds,
 )
 
 
@@ -224,3 +225,7 @@ def infer_states(
     return inferred_states
 
 
+def make_mask(mask_len, first_known_i):
+    inds = make_inds(mask_len, first_known_i)
+    mask = inds >= 0
+    return mask
