@@ -181,14 +181,14 @@ def get_latent_state_prime_gaussians(
     latent_actions,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
-    mask=None,
+    first_known_action_i=0,
 ):
     next_state_gaussian = vibe_config.transition_model.apply(
         vibe_state.transition_model_params,
         latent_states,
         latent_actions,
         jnp.arange(latent_actions.shape[0]) * vibe_config.env_config.dt,
-        mask,
+        first_known_action_i,
     )
 
     # Clamp the variance to at least 1e-6
@@ -224,7 +224,3 @@ def infer_states(
     return inferred_states
 
 
-def make_mask(mask_len, start_mask):
-    mask = jnp.arange(mask_len)
-    mask = mask < start_mask
-    return mask

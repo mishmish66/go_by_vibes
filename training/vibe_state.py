@@ -183,10 +183,10 @@ class VibeState(struct.PyTreeNode):
         )
         transition_model_params = train_config.transition_model.init(
             rngs[2],
-            jnp.ones([16, encoded_state_dim]),
+            jnp.ones([encoded_state_dim]),
             jnp.ones([16, encoded_action_dim]),
             jnp.ones(16),
-            jnp.ones(16, dtype=jnp.int32),
+            10,
         )
         state_decoder_params = train_config.state_decoder.init(
             rngs[3],

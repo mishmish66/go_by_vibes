@@ -12,6 +12,8 @@ from .rollout import collect_rollout
 from .nets import (
     encoded_state_dim,
     encoded_action_dim,
+    make_inds,
+    make_mask,
 )
 
 from .vibe_state import VibeState, TrainConfig
@@ -23,7 +25,6 @@ from .inference import (
     get_latent_state_prime_gaussians,
     get_state_space_gaussian,
     get_action_space_gaussian,
-    make_mask,
 )
 
 from dataclasses import dataclass
@@ -184,7 +185,7 @@ def composed_loss(
     )
 
     # Infer next latent states
-    def loss_forward_per_random_index(key):
+    def per_random_index(key):
         prev_latent_states = latent_states[:-1]
         next_latent_states = latent_states[1:]
 
@@ -198,25 +199,25 @@ def composed_loss(
         )
 
         # Now just a bunch of stuff to slice up the arrays
-        known_state_count = random_i
+        last_known_state_i = random_i
+        last_known_state = prev_latent_states[last_known_state_i]
 
-        known_prev_latent_state_mask = make_mask(
-            prev_latent_states.shape[0], known_state_count
+        inferred_next_state_mask = make_mask(
+            next_latent_states.shape[0], last_known_state_i
         )
-        inferred_next_state_mask = 1 - known_prev_latent_state_mask
 
         # Now we get predict the next latent states
         latent_states_prime_gaussians = get_latent_state_prime_gaussians(
-            prev_latent_states,
+            last_known_state,
             latent_actions,
             vibe_state,
             train_config,
-            known_prev_latent_state_mask,
+            last_known_state_i,
         )
 
         gt_next_latent_states = einsum(
             next_latent_states,
-            1 - known_prev_latent_state_mask,
+            inferred_next_state_mask,
             "t d, t -> t d",
         )
 
@@ -237,14 +238,18 @@ def composed_loss(
         forward_loss = loss_forward(
             inferred_latent_states_prime_sampled, gt_next_latent_states
         )
+        
+        # Evaluate smoothness loss
+        # smoothness_loss = loss_smoothness(
+            
 
         return forward_loss
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, forward_loss_num_random_indices)
-    forward_loss_per_random_indices = jax.vmap(loss_forward_per_random_index)(rngs)
+    forward_loss_per_random_indices = jax.vmap(per_random_index)(rngs)
     forward_loss = jnp.mean(forward_loss_per_random_indices, axis=0)
-    
+
     # Evaluate smoothness loss:
     # neighborhood_
 

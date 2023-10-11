@@ -35,16 +35,16 @@ class FreqLayer(nn.Module):
 
 class StateEncoder(nn.Module):
     def setup(self):
-        self.freq_layer = FreqLayer(out_dim=256)
+        self.freq_layer = FreqLayer(out_dim=64)
 
         self.dense_layers = [
             nn.Dense(dim, name=f"FC{i}")
             for i, dim in enumerate(
                 [
-                    128,
-                    128,
-                    128,
                     64,
+                    32,
+                    32,
+                    32,
                     encoded_state_dim * 2,
                 ]
             )
@@ -95,16 +95,16 @@ class StateDecoder(nn.Module):
 
 class ActionEncoder(nn.Module):
     def setup(self):
-        self.freq_layer = FreqLayer(out_dim=256)
+        self.freq_layer = FreqLayer(out_dim=64)
 
         self.dense_layers = [
             nn.Dense(dim, name=f"FC{i}")
             for i, dim in enumerate(
                 [
-                    128,
-                    128,
-                    128,
                     64,
+                    64,
+                    32,
+                    32,
                     encoded_action_dim * 2,
                 ]
             )
@@ -204,88 +204,79 @@ class TransformerLayer(nn.Module):
         return x
 
 
+def make_inds(mask_len, first_known_i):
+    inds = jnp.arange(-first_known_i, mask_len - first_known_i)
+    return inds
+
+def make_mask(mask_len, first_known_i):
+    inds = make_inds(mask_len, first_known_i)
+    mask = inds >= 0
+    return mask
+
+
 class TransitionModel(nn.Module):
-    n: float
+    encoder_n: float
+    n_layers: int
     latent_dim: int
     heads: int
 
     def setup(self):
-        self.temporal_encoder = TemporalEncoder(n=self.n)
+        self.temporal_encoder = TemporalEncoder(n=self.encoder_n)
 
-        self.state_expander = nn.Dense(self.latent_dim, name="SE")
-        self.action_expander = nn.Dense(self.latent_dim, name="AE")
+        self.state_action_expander = nn.Dense(self.latent_dim, name="ACTION_EXPANDER")
 
-        self.action_t_layers = {
-            i: {
-                "CA": TransformerLayer(
-                    dim=self.latent_dim,
-                    heads=self.heads,
-                    dropout=0.0,
-                    name=f"ACT_CA{i}",
-                ),
-                "SA": TransformerLayer(
-                    dim=self.latent_dim,
-                    heads=self.heads,
-                    dropout=0.0,
-                    name=f"ACT_SA{i}",
-                ),
-            }
-            for i in range(2)
-        }
+        self.t_layers = [
+            TransformerLayer(
+                dim=self.latent_dim,
+                heads=self.heads,
+                dropout=0.0,
+                name=f"ATTN_{i}",
+            )
+            for i in range(self.n_layers)
+        ]
 
-        self.state_t_layers = {
-            i: {
-                "CA": TransformerLayer(
-                    dim=self.latent_dim,
-                    heads=self.heads,
-                    dropout=0.0,
-                    name=f"STA_CA{i}",
-                ),
-                "SA": TransformerLayer(
-                    dim=self.latent_dim,
-                    heads=self.heads,
-                    dropout=0.0,
-                    name=f"STA_SA{i}",
-                ),
-            }
-            for i in range(6)
-        }
-
-        self.state_condenser = nn.Dense(encoded_state_dim * 2, name="SC")
+        self.state_condenser = nn.Dense(encoded_state_dim * 2, name="STATE_CONDENSER")
 
     def __call__(
         self,
-        latent_states,
+        initial_latent_state,
         latent_actions,
         times,
-        mask,
+        first_known_action_i,
     ) -> Any:
-        # Upscale actions and states to latent dim
-        states = self.state_expander(latent_states)
-        actions = self.action_expander(latent_actions)
+        inds = make_inds(latent_actions.shape[0], first_known_action_i)
+        mask_time_inds = inds.at[inds < 0].set(0)
 
         # Apply temporal encodings
-        states = jax.vmap(self.temporal_encoder, (0, 0))(
-            states, times[: states.shape[0]]
+        latent_actions_temp = jax.vmap(self.temporal_encoder, (0, 0))(
+            latent_actions, times[mask_time_inds]
         )
-        actions = jax.vmap(self.temporal_encoder, (0, 0))(actions, times)
+
+        state_actions = jax.vmap(
+            lambda s, a: jnp.concatenate([s, a]),
+            (None, 0),
+        )(initial_latent_state, latent_actions_temp)
+
+        # Upscale actions and state to latent dim
+        x = jax.vmap(self.state_action_expander.__call__)(state_actions)
+
+        mask = inds >= 0
 
         # Apply transformer layers
-        t_layer_indices = [*self.action_t_layers.keys(), *self.state_t_layers.keys()]
-        for i in range(max(t_layer_indices)):
-            if i in self.state_t_layers:
-                states = self.state_t_layers[i]["CA"](states, actions, mask)
-                states = self.state_t_layers[i]["SA"](states, states, mask)
-
-            if i in self.action_t_layers:
-                actions = self.action_t_layers[i]["CA"](actions, states)
-                actions = self.action_t_layers[i]["SA"](actions, actions)
+        for t_layer in self.t_layers:
+            x = t_layer(x, x, mask)
 
         # Rescale states to original dim
-        latent_states_prime = self.state_condenser(states)
-        x_mean = latent_states_prime[..., :encoded_state_dim]
-        x_std = nn.softplus(latent_states_prime[..., encoded_state_dim:])
+        x = self.state_condenser(x)
+        latent_state_prime_mean = x[..., :encoded_state_dim]
+        latent_state_prime_std = nn.softplus(x[..., encoded_state_dim:])
 
-        x = jnp.concatenate([x_mean, x_std], axis=-1)
+        latent_state_prime_gauss_params = jnp.concatenate(
+            [
+                latent_state_prime_mean,
+                latent_state_prime_std,
+            ],
+            axis=-1,
+        )
 
-        return x
+        return latent_state_prime_gauss_params

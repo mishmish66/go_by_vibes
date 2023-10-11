@@ -92,17 +92,17 @@ vibe_config = TrainConfig.init(
     ),
     state_encoder=StateEncoder(),
     action_encoder=ActionEncoder(),
-    transition_model=TransitionModel(1e4, 64, 4),
+    transition_model=TransitionModel(1e4, 6, 64, 4),
     state_decoder=StateDecoder(env_config.state_dim),
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
     rollouts=1024,
-    epochs=16,
-    batch_size=128,
+    epochs=8,
+    batch_size=256,
     traj_per_rollout=1024,
     rollout_length=250,
     reconstruction_weight=1.0,
-    forward_weight=1.0,
+    forward_weight=0.1,
 )
 
 rng, key = jax.random.split(key)
@@ -118,7 +118,7 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    # mode="disabled",
+    mode="disabled",
 )
 
 
