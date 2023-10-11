@@ -20,7 +20,7 @@ class FreqLayer(nn.Module):
 
     def __call__(self, x) -> Any:
         d = x.shape[-1]
-        per_dim = (((self.out_dim // d) + 1) // 2) + 1
+        per_dim = (((self.out_dim // d) - 1) // 2) + 1
         indices = jnp.arange(per_dim)
         freq_factor = 5 / jnp.power(1e4, 2 * indices / d)
         operands = einsum(x, freq_factor, "d, w -> w d")
@@ -28,9 +28,11 @@ class FreqLayer(nn.Module):
         cosines = jnp.cos(operands)
 
         freq_result = rearrange([sins, cosines], "f w d -> (d f w)")
-        sliced_freq_result = freq_result[: self.out_dim]
+        sliced_freq_result = freq_result[: self.out_dim - d]
+        
+        cat_result = jnp.concatenate([x, sliced_freq_result], axis=-1)
 
-        return sliced_freq_result
+        return cat_result
 
 
 class StateEncoder(nn.Module):
