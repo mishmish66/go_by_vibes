@@ -27,6 +27,8 @@ from .inference import (
     make_mask,
 )
 
+from .infos import Infos
+
 from dataclasses import dataclass
 
 
@@ -122,6 +124,8 @@ def composed_loss(
         train_config,
     )
 
+    result_infos = Infos.init()
+
     """ This will sample one encoding from the encoder and evaluate losses """
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[0])
@@ -186,6 +190,7 @@ def composed_loss(
 
     # Infer next latent states
     def per_random_index(key):
+        result_infos = Infos.init()
         prev_latent_states = latent_states[:-1]
         next_latent_states = latent_states[1:]
 
@@ -238,24 +243,39 @@ def composed_loss(
         forward_loss = loss_forward(
             inferred_latent_states_prime_sampled, gt_next_latent_states
         )
-        
+
         # Evaluate smoothness loss
         # smoothness_loss = loss_smoothness(
-            
 
-        return forward_loss
+        state_prime_diffs = inferred_latent_states_prime_sampled - gt_next_latent_states
+
+        state_prime_diff_mags = jnp.linalg.norm(state_prime_diffs, axis=-1)
+
+        result_infos.add_masked_info(
+            "state_prime_diff_mags", state_prime_diff_mags, inferred_next_state_mask
+        )
+
+        return forward_loss, result_infos
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, forward_loss_num_random_indices)
-    forward_loss_per_random_indices = jax.vmap(per_random_index)(rngs)
-    forward_loss = jnp.mean(forward_loss_per_random_indices, axis=0)
+    forward_loss_per_random_index, result_infos_per_random_index = jax.vmap(
+        per_random_index
+    )(rngs)
+    forward_loss = jnp.mean(forward_loss_per_random_index, axis=0)
 
-    # Evaluate smoothness loss:
-    # neighborhood_
+    result_infos = Infos.merge(result_infos, result_infos_per_random_index)
+    result_infos.add_loss_info("forward_loss", forward_loss)
+    result_infos.add_loss_info("reconstruction_loss", reconstruction_loss)
 
-    return Losses.init(
-        reconstruction_loss=reconstruction_loss,
-        forward_loss=forward_loss,
+    # Gather info for logging
+
+    return (
+        Losses.init(
+            reconstruction_loss=reconstruction_loss,
+            forward_loss=forward_loss,
+        ),
+        result_infos,
     )
 
 
@@ -281,9 +301,3 @@ class Losses:
             reconstruction_loss=data[0],
             forward_loss=data[1],
         )
-
-    def make_dict(self):
-        return {
-            "reconstruction_loss": self.reconstruction_loss,
-            "forward_loss": self.forward_loss,
-        }

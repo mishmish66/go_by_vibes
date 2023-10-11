@@ -118,7 +118,7 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    mode="disabled",
+    # mode="disabled",
 )
 
 
@@ -141,7 +141,7 @@ def do_rollout(carry_pack, _):
         vibe_config,
         rngs,
     )
-    
+
     env_cls.send_wandb_video(rollout_result[0][0], env_config)
 
     # from jax import config
@@ -181,12 +181,14 @@ def do_rollout(carry_pack, _):
             (
                 vibe_state,
                 loss_infos,
-            ) = jax.jit(train_step)(
+            ) = train_step(
                 rng,
                 vibe_state,
                 vibe_config,
                 rollout_result_batch,
             )
+
+            loss_infos.dump_to_console()
 
             msg = None
 
@@ -194,9 +196,13 @@ def do_rollout(carry_pack, _):
                 lambda chunk, _: print(f"Chunk {chunk}"), chunk_i
             )
 
-            jax.experimental.host_callback.id_tap(
-                dump_to_wandb_for_tap, (loss_infos, rollout_i, epoch, chunk_i)
-            )
+            is_update_chunk = chunk_i % vibe_config.every_k == 0
+
+            jax.lax.cond(is_update_chunk, loss_infos.dump_to_wandb, lambda: None)
+
+            # jax.experimental.host_callback.id_tap(
+            #     dump_to_wandb_for_tap, (loss_infos, rollout_i, epoch, chunk_i)
+            # )
 
             return (key, chunk_i + 1, vibe_state), (msg, loss_infos)
 

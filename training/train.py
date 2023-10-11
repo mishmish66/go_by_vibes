@@ -6,6 +6,10 @@ from jax.experimental.host_callback import id_tap
 from .vibe_state import VibeState, TrainConfig
 from .loss import composed_loss
 
+from .infos import Infos
+
+from einops import rearrange
+
 import wandb
 
 
@@ -25,7 +29,9 @@ def train_step(
 
         rng, key = jax.random.split(key)
         rngs = jax.random.split(rng, n_traj)
-        losses_per_traj = jax.vmap(composed_loss, (0, 0, 0, None, None))(
+        losses_per_traj, infos_per_traj = jax.vmap(
+            composed_loss, (0, 0, 0, None, None)
+        )(
             rngs,
             rollout_result[0],
             rollout_result[1],
@@ -39,16 +45,25 @@ def train_step(
             1 + jnp.exp(losses.reconstruction_loss + 50)
         )
 
+        infos = Infos.init(
+            loss_infos=jax.tree_map(
+                lambda x: jnp.mean(x, axis=0), infos_per_traj.loss_infos
+            ),
+            plain_infos=jax.tree_map(
+                lambda x: rearrange(x, "t n ... -> (t n) ..."),
+                infos_per_traj.plain_infos,
+            ),
+            masked_infos=jax.tree_map(
+                lambda x: rearrange(x, "t n ... -> (t n) ..."),
+                infos_per_traj.masked_infos,
+            ),
+        )
+
         gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
 
-        # TODO: replace this with a better way of getting infos
-        return (
-            losses.reconstruction_loss + losses.forward_loss * gate_value,
-            {
-                **losses.make_dict(),
-                "gate_value": gate_value,
-            },
-        )
+        infos.add_plain_info("gate_value", gate_value)
+
+        return losses.reconstruction_loss + losses.forward_loss * gate_value, infos
 
     (
         vibe_grad,
@@ -68,21 +83,20 @@ def train_step(
     total_grad = concat_leaves(vibe_grad)
     total_grad_norm = jnp.linalg.norm(total_grad)
 
-    id_tap(
-        lambda loss_infos, _: print(
-            f"reconstruction_loss: {loss_infos['reconstruction_loss']}\n"
-            + f"forward_loss: {loss_infos['forward_loss']}\n"
-            + f"gate_value: {loss_infos['gate_value']}\n"
-        ),
-        loss_infos,
-    )
+    # id_tap(
+    #     lambda loss_infos, _: print(
+    #         f"reconstruction_loss: {loss_infos['reconstruction_loss']}\n"
+    #         + f"forward_loss: {loss_infos['forward_loss']}\n"
+    #         + f"gate_value: {loss_infos['gate_value']}\n"
+    #     ),
+    #     loss_infos,
+    # )
 
     vibe_state = vibe_state.apply_gradients(vibe_grad, train_config)
 
-    return (
-        vibe_state,
-        {"total_grad_norm": total_grad_norm, **loss_infos},
-    )
+    loss_infos.add_plain_info("total_grad_norm", total_grad_norm)
+
+    return vibe_state, loss_infos
 
 
 def dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, train_config: TrainConfig):
