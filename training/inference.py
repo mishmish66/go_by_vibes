@@ -64,6 +64,17 @@ def encode_state(
 
     return latent_state
 
+def get_neighborhood_state(key, latent_state):
+    rng, key = jax.random.split(key)
+    ball_sample = jax.random.normal(rng, encoded_state_dim)
+
+    return latent_state + ball_sample
+
+def get_neighborhood_action(key, latent_action):
+    rng, key = jax.random.split(key)
+    ball_sample = jax.random.ball(rng, encoded_action_dim)
+    
+    return latent_action + ball_sample
 
 def get_latent_action_gaussian(
     action,
@@ -203,24 +214,24 @@ def get_latent_state_prime_gaussians(
 
 def infer_states(
     key,
-    latent_states,
+    latent_start_state,
     latent_actions,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
-    mask=None,
+    first_unknown_action_i=None,
 ):
-    rng, key = jax.random.split(key)
-
     latent_state_prime_gaussians = get_latent_state_prime_gaussians(
-        latent_states,
+        latent_start_state,
         latent_actions,
         vibe_state,
         vibe_config,
-        mask,
+        first_unknown_action_i,
     )
 
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_state_prime_gaussians.shape[0])
     inferred_states = jax.vmap(sample_gaussian, (0, 0))(
-        rng, latent_state_prime_gaussians
+        rngs, latent_state_prime_gaussians
     )
     return inferred_states
 

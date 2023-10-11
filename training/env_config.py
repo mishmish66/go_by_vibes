@@ -43,3 +43,11 @@ class EnvConfig:
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
+
+    def random_action(self, key):
+        rng, key = jax.random.split(key)
+        random_nums = jax.random.uniform(rng, (self.action_bounds.shape[0],))
+        scaled = random_nums * (self.action_bounds[:, 1] - self.action_bounds[:, 0])
+        scaled_and_shifted = scaled + self.action_bounds[:, 0]
+
+        return scaled_and_shifted

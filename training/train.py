@@ -4,7 +4,7 @@ from jax import numpy as jnp
 from jax.experimental.host_callback import id_tap
 
 from .vibe_state import VibeState, TrainConfig
-from .loss import composed_loss
+from .loss import composed_random_index_losses, composed_whole_traj_losses, Losses
 
 from .infos import Infos
 
@@ -18,6 +18,8 @@ def train_step(
     vibe_state: VibeState,
     train_config: TrainConfig,
     rollout_result,
+    n_random_index_samples=1,
+    n_gaussian_samples=16,
 ):
     """Train for a single step."""
 
@@ -28,9 +30,11 @@ def train_step(
         n_traj = rollout_result[0].shape[0]
 
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, n_traj)
-        losses_per_traj, infos_per_traj = jax.vmap(
-            composed_loss, (0, 0, 0, None, None)
+        rngs = jax.random.split(rng, (n_traj, n_random_index_samples))
+
+        losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
+            jax.vmap(composed_random_index_losses, (0, 0, 0, None, None)),
+            (0, None, None, None, None),
         )(
             rngs,
             rollout_result[0],
@@ -39,31 +43,70 @@ def train_step(
             train_config,
         )
 
-        losses = jax.tree_map(lambda x: jnp.mean(x, axis=0), losses_per_traj)
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
+        losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
+            jax.vmap(composed_whole_traj_losses, (0, 0, 0, None, None)),
+            (0, None, None, None, None),
+        )(
+            rngs,
+            rollout_result[0],
+            rollout_result[1],
+            updated_vibe_state,
+            train_config,
+        )
+
+        def process_losses(losses):
+            return jax.tree_map(
+                lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
+                losses,
+            )
+
+        random_index_losses = process_losses(losses_per_traj_per_random_index)
+        whole_traj_losses = process_losses(losses_per_traj_per_gauss_sample)
+
+        losses = Losses.merge(random_index_losses, whole_traj_losses)
 
         shaped_sigmoid_reconstruction_loss = 1 / (
-            1 + jnp.exp(losses.reconstruction_loss + 50)
+            1 + jnp.exp(losses.reconstruction_loss + 10)
         )
 
-        infos = Infos.init(
-            loss_infos=jax.tree_map(
-                lambda x: jnp.mean(x, axis=0), infos_per_traj.loss_infos
-            ),
-            plain_infos=jax.tree_map(
-                lambda x: rearrange(x, "t n ... -> (t n) ..."),
-                infos_per_traj.plain_infos,
-            ),
-            masked_infos=jax.tree_map(
-                lambda x: rearrange(x, "t n ... -> (t n) ..."),
-                infos_per_traj.masked_infos,
-            ),
-        )
+        def process_infos(infos):
+            return Infos.init(
+                loss_infos=jax.tree_map(
+                    lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
+                    infos.loss_infos,
+                ),
+                plain_infos=jax.tree_map(
+                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
+                    infos.plain_infos,
+                ),
+                masked_infos=jax.tree_map(
+                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
+                    infos.masked_infos,
+                ),
+            )
+
+        random_i_infos = process_infos(infos_per_traj_per_random_index)
+        whole_traj_infos = process_infos(infos_per_traj_per_gauss_sample)
+
+        infos = Infos.merge(random_i_infos, whole_traj_infos)
 
         gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
 
         infos.add_plain_info("gate_value", gate_value)
 
-        return losses.reconstruction_loss + losses.forward_loss * gate_value, infos
+        return (
+            losses.reconstruction_loss * train_config.reconstruction_weight
+            + (
+                losses.forward_loss * train_config.forward_weight
+                + losses.smoothness_loss * train_config.smoothness_weight
+                + losses.dispersion_loss * train_config.dispersion_weight
+                + losses.condensation_loss * train_config.condensation_weight
+            )
+            * gate_value,
+            infos,
+        )
 
     (
         vibe_grad,

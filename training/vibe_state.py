@@ -61,6 +61,9 @@ class TrainConfig:
 
     reconstruction_weight: any
     forward_weight: any
+    smoothness_weight: any
+    dispersion_weight: any
+    condensation_weight: any
 
     @classmethod
     def init(
@@ -81,6 +84,9 @@ class TrainConfig:
         rollout_length=250,
         reconstruction_weight=1.0,
         forward_weight=1.0,
+        smoothness_weight=1.0,
+        dispersion_weight=1.0,
+        condensation_weight=1.0,
     ):
         return cls(
             learning_rate=learning_rate,
@@ -99,6 +105,9 @@ class TrainConfig:
             rollout_length=rollout_length,
             reconstruction_weight=reconstruction_weight,
             forward_weight=forward_weight,
+            smoothness_weight=smoothness_weight,
+            dispersion_weight=dispersion_weight,
+            condensation_weight=condensation_weight,
         )
 
     def make_dict(self):
@@ -112,6 +121,9 @@ class TrainConfig:
             "rollout_length": self.rollout_length,
             "reconstruction_weight": self.reconstruction_weight,
             "forward_weight": self.forward_weight,
+            "smoothness_weight": self.smoothness_weight,
+            "dispersion_weight": self.dispersion_weight,
+            "condensation_weight": self.condensation_weight,
         }
 
     def tree_flatten(self):
@@ -132,6 +144,9 @@ class TrainConfig:
             "rollout_length": self.rollout_length,
             "reconstruction_weight": self.reconstruction_weight,
             "forward_weight": self.forward_weight,
+            "smoothness_weight": self.smoothness_weight,
+            "dispersion_weight": self.dispersion_weight,
+            "condensation_weight": self.condensation_weight,
         }
 
     @classmethod
@@ -153,6 +168,9 @@ class TrainConfig:
             rollout_length=aux["rollout_length"],
             reconstruction_weight=aux["reconstruction_weight"],
             forward_weight=aux["forward_weight"],
+            smoothness_weight=aux["smoothness_weight"],
+            dispersion_weight=aux["dispersion_weight"],
+            condensation_weight=aux["condensation_weight"],
         )
 
 

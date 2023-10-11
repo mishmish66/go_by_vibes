@@ -25,6 +25,11 @@ from .inference import (
     get_state_space_gaussian,
     get_action_space_gaussian,
     make_mask,
+    encode_state,
+    encode_action,
+    infer_states,
+    get_neighborhood_state,
+    get_neighborhood_action,
 )
 
 from .infos import Infos
@@ -84,9 +89,9 @@ def loss_smoothness(
 ):
     diffs = original_latent_states - neighborhood_result_latent_states
     diff_mags = jnp.linalg.norm(diffs, axis=-1)
-    diff_mags_dist_from_1 = jnp.abs(diff_mags - 1)
+    neighborhood_violation = jnp.maximum(diff_mags - 1.0, 0)
 
-    return jnp.mean(diff_mags_dist_from_1)
+    return jnp.mean(neighborhood_violation)
 
 
 def loss_disperse(
@@ -107,44 +112,29 @@ def loss_condense(
     return jnp.mean(diff_mags)
 
 
-def composed_loss(
+def composed_whole_traj_losses(
     key,
     states,
     actions,
     vibe_state: VibeState,
     train_config: TrainConfig,
-    forward_loss_num_random_indices=16,
 ):
-    latent_state_gaussian_params = jax.vmap(
-        get_latent_state_gaussian,
-        (0, None, None),
-    )(
-        states,
-        vibe_state,
-        train_config,
-    )
+    """This will sample one encoding from the encoder and evaluate losses"""
 
     result_infos = Infos.init()
 
-    """ This will sample one encoding from the encoder and evaluate losses """
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[0])
-    latent_states = jax.vmap(sample_gaussian, (0, 0))(
-        rngs, latent_state_gaussian_params
+    latent_states = jax.vmap(encode_state, (0, 0, None, None))(
+        rngs, states, vibe_state, train_config
     )
-    latent_action_gaussian_params = jax.vmap(
-        get_latent_action_gaussian,
-        (0, 0, None, None),
-    )(
-        actions,
-        latent_states[:-1],
-        vibe_state,
-        train_config,
-    )
+
+    prev_latent_states = latent_states[:-1]
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[0])
-    latent_actions = jax.vmap(sample_gaussian, (0, 0))(
-        rngs, latent_action_gaussian_params
+    latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
+        rngs, actions, prev_latent_states, vibe_state, train_config
     )
 
     state_space_gaussians = jax.vmap(
@@ -154,7 +144,7 @@ def composed_loss(
     action_space_gaussians = jax.vmap(
         get_action_space_gaussian,
         in_axes=(0, 0, None, None),
-    )(latent_actions, latent_states[:-1], vibe_state, train_config)
+    )(latent_actions, prev_latent_states, vibe_state, train_config)
 
     # Evaluate reconstruction loss:
     reconstruction_loss = loss_reconstruction(
@@ -164,117 +154,153 @@ def composed_loss(
         actions,
     )
 
-    # Evaluate forward loss:
-    # Sample latent states and actions
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, states.shape[0])
-    latent_states = jax.vmap(sample_gaussian, (0, 0))(
-        rngs, latent_state_gaussian_params
-    )
-
-    latent_action_gaussian_params = jax.vmap(
-        get_latent_action_gaussian,
-        (0, 0, None, None),
-    )(
-        actions,
-        latent_states[:-1],
-        vibe_state,
-        train_config,
-    )
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, actions.shape[0])
-    latent_actions = jax.vmap(sample_gaussian, (0, 0))(
-        rngs, latent_action_gaussian_params
-    )
-
-    # Infer next latent states
-    def per_random_index(key):
-        result_infos = Infos.init()
-        prev_latent_states = latent_states[:-1]
-        next_latent_states = latent_states[1:]
-
-        # Generate a random index to make the network guess
-        # the second part of the latent state sequence
-        # give it some padding so it has to predict at least
-        # an eighth of the sequence
-        end_padding = prev_latent_states.shape[0] // 8
-        random_i = jax.random.randint(
-            key, [], 0, prev_latent_states.shape[0] - end_padding
-        )
-
-        # Now just a bunch of stuff to slice up the arrays
-        last_known_state_i = random_i
-        last_known_state = prev_latent_states[last_known_state_i]
-
-        inferred_next_state_mask = make_mask(
-            next_latent_states.shape[0], last_known_state_i
-        )
-
-        # Now we get predict the next latent states
-        latent_states_prime_gaussians = get_latent_state_prime_gaussians(
-            last_known_state,
-            latent_actions,
-            vibe_state,
-            train_config,
-            last_known_state_i,
-        )
-
-        gt_next_latent_states = einsum(
-            next_latent_states,
-            inferred_next_state_mask,
-            "t d, t -> t d",
-        )
-
-        # Sample the next latent states
-        rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, latent_states_prime_gaussians.shape[0])
-        latent_states_prime_sampled = jax.vmap(sample_gaussian, (0, 0))(
-            rngs,
-            latent_states_prime_gaussians,
-        )
-        inferred_latent_states_prime_sampled = einsum(
-            latent_states_prime_sampled,
-            inferred_next_state_mask,
-            "t d, t -> t d",
-        )
-
-        # Evaluate the forward loss
-        forward_loss = loss_forward(
-            inferred_latent_states_prime_sampled, gt_next_latent_states
-        )
-
-        # Evaluate smoothness loss
-        # smoothness_loss = loss_smoothness(
-
-        state_prime_diffs = inferred_latent_states_prime_sampled - gt_next_latent_states
-
-        state_prime_diff_mags = jnp.linalg.norm(state_prime_diffs, axis=-1)
-
-        result_infos.add_masked_info(
-            "state_prime_diff_mags", state_prime_diff_mags, inferred_next_state_mask
-        )
-
-        return forward_loss, result_infos
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, forward_loss_num_random_indices)
-    forward_loss_per_random_index, result_infos_per_random_index = jax.vmap(
-        per_random_index
-    )(rngs)
-    forward_loss = jnp.mean(forward_loss_per_random_index, axis=0)
-
-    result_infos = Infos.merge(result_infos, result_infos_per_random_index)
-    result_infos.add_loss_info("forward_loss", forward_loss)
     result_infos.add_loss_info("reconstruction_loss", reconstruction_loss)
 
-    # Gather info for logging
+    # Evaluate dispersion loss
+    dispersion_loss = loss_disperse(latent_states)
+
+    # Evaluate condensation loss
+    # Resample actions from action space
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_states.shape[0])
+    random_actions = jax.vmap(train_config.env_config.random_action)(rngs)
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, random_actions.shape[0])
+    latent_random_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
+        rngs, random_actions, latent_states, vibe_state, train_config
+    )
+
+    condensation_loss = loss_condense(latent_random_actions)
+
+    result_infos.add_plain_info("dispersion_loss", dispersion_loss)
+    result_infos.add_plain_info("condensation_loss", condensation_loss)
 
     return (
         Losses.init(
             reconstruction_loss=reconstruction_loss,
-            forward_loss=forward_loss,
+            dispersion_loss=dispersion_loss,
+            condensation_loss=condensation_loss,
         ),
+        result_infos,
+    )
+
+
+def composed_random_index_losses(
+    key,
+    states,
+    actions,
+    vibe_state: VibeState,
+    train_config: TrainConfig,
+):
+    result_infos = Infos.init()
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[0])
+    latent_states = jax.vmap(encode_state, (0, 0, None, None))(
+        rngs, states, vibe_state, train_config
+    )
+
+    prev_latent_states = latent_states[:-1]
+    next_latent_states = latent_states[1:]
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[0])
+    latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
+        rngs, actions, prev_latent_states, vibe_state, train_config
+    )
+
+    # Generate a random index to make the network guess
+    # the second part of the latent state sequence
+    # give it some padding so it has to predict at least
+    # an eighth of the sequence
+    end_padding = prev_latent_states.shape[0] // 8
+    random_i = jax.random.randint(key, [], 0, prev_latent_states.shape[0] - end_padding)
+
+    # Now just a bunch of stuff to slice up the arrays
+    last_known_state_i = random_i
+    last_known_state = prev_latent_states[last_known_state_i]
+
+    inferred_next_state_mask = make_mask(
+        next_latent_states.shape[0], last_known_state_i
+    )
+
+    # Now we get predict the next latent states
+    latent_states_prime_gaussians = get_latent_state_prime_gaussians(
+        last_known_state,
+        latent_actions,
+        vibe_state,
+        train_config,
+        last_known_state_i,
+    )
+
+    gt_next_latent_states = einsum(
+        next_latent_states,
+        inferred_next_state_mask,
+        "t d, t -> t d",
+    )
+
+    # Sample the next latent states
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_states_prime_gaussians.shape[0])
+    latent_states_prime_sampled = jax.vmap(sample_gaussian, (0, 0))(
+        rngs,
+        latent_states_prime_gaussians,
+    )
+    inferred_latent_states_prime_sampled = einsum(
+        latent_states_prime_sampled,
+        inferred_next_state_mask,
+        "t d, t -> t d",
+    )
+
+    # Evaluate the forward loss
+    forward_loss = loss_forward(
+        inferred_latent_states_prime_sampled, gt_next_latent_states
+    )
+
+    state_prime_diffs = inferred_latent_states_prime_sampled - gt_next_latent_states
+
+    state_prime_diff_mags = jnp.linalg.norm(state_prime_diffs, axis=-1)
+    state_prime_diff_mag_logs = jnp.log(state_prime_diff_mags)
+
+    result_infos.add_masked_info(
+        "state_prime_diff_mag_logs", state_prime_diff_mag_logs, inferred_next_state_mask
+    )
+
+    # Evaluate the smoothness loss
+    # First we resample the indexed state
+    rng, key = jax.random.split(key)
+    neighborhood_latent_start_state = get_neighborhood_state(
+        rng,
+        states[last_known_state_i],
+    )
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, latent_actions.shape[0])
+    neighborhood_latent_actions = jax.vmap(get_neighborhood_action)(
+        rngs, latent_actions
+    )
+    # Now we resample the latent actions
+    # Now we model forward from that state
+    rng, key = jax.random.split(key)
+    neighborhood_next_states_prime = infer_states(
+        rng,
+        neighborhood_latent_start_state,
+        neighborhood_latent_actions,
+        vibe_state,
+        train_config,
+        last_known_state_i,
+    )
+    # Now we evaluate the smoothness loss
+    smoothness_loss = loss_smoothness(
+        next_latent_states,
+        neighborhood_next_states_prime,
+    )
+
+    result_infos.add_loss_info("smoothness_loss", smoothness_loss)
+    result_infos.add_loss_info("forward_loss", forward_loss)
+
+    return (
+        Losses.init(forward_loss=forward_loss, smoothness_loss=smoothness_loss),
         result_infos,
     )
 
@@ -284,20 +310,52 @@ def composed_loss(
 class Losses:
     reconstruction_loss: any
     forward_loss: any
+    smoothness_loss: any
+    dispersion_loss: any
+    condensation_loss: any
 
     @classmethod
-    def init(cls, reconstruction_loss, forward_loss):
+    def init(
+        cls,
+        reconstruction_loss=0,
+        forward_loss=0,
+        smoothness_loss=0,
+        dispersion_loss=0,
+        condensation_loss=0,
+    ):
         return cls(
             reconstruction_loss=reconstruction_loss,
             forward_loss=forward_loss,
+            smoothness_loss=smoothness_loss,
+            dispersion_loss=dispersion_loss,
+            condensation_loss=condensation_loss,
         )
 
     def tree_flatten(self):
-        return [self.reconstruction_loss, self.forward_loss], None
+        return [
+            self.reconstruction_loss,
+            self.forward_loss,
+            self.smoothness_loss,
+            self.dispersion_loss,
+            self.condensation_loss,
+        ], None
 
     @classmethod
     def tree_unflatten(cls, aux, data):
-        return cls(
+        return cls.init(
             reconstruction_loss=data[0],
             forward_loss=data[1],
+            smoothness_loss=data[2],
+            dispersion_loss=data[3],
+            condensation_loss=data[4],
+        )
+
+    @classmethod
+    def merge(cls, a, b):
+        return cls.init(
+            reconstruction_loss=a.reconstruction_loss + b.reconstruction_loss,
+            forward_loss=a.forward_loss + b.forward_loss,
+            smoothness_loss=a.smoothness_loss + b.smoothness_loss,
+            dispersion_loss=a.dispersion_loss + b.dispersion_loss,
+            condensation_loss=a.condensation_loss + b.condensation_loss,
         )
