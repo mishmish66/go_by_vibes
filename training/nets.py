@@ -8,8 +8,8 @@ from flax import linen as nn
 
 from einops import einsum, rearrange
 
-encoded_state_dim = 64
-encoded_action_dim = 64
+encoded_state_dim = 16
+encoded_action_dim = 16
 
 
 class FreqLayer(nn.Module):
@@ -207,6 +207,7 @@ class TransformerLayer(nn.Module):
 class TransitionModel(nn.Module):
     n: float
     latent_dim: int
+    heads: int
 
     def setup(self):
         self.temporal_encoder = TemporalEncoder(n=self.n)
@@ -218,13 +219,13 @@ class TransitionModel(nn.Module):
             i: {
                 "CA": TransformerLayer(
                     dim=self.latent_dim,
-                    heads=8,
+                    heads=self.heads,
                     dropout=0.0,
                     name=f"ACT_CA{i}",
                 ),
                 "SA": TransformerLayer(
                     dim=self.latent_dim,
-                    heads=8,
+                    heads=self.heads,
                     dropout=0.0,
                     name=f"ACT_SA{i}",
                 ),
@@ -236,13 +237,13 @@ class TransitionModel(nn.Module):
             i: {
                 "CA": TransformerLayer(
                     dim=self.latent_dim,
-                    heads=8,
+                    heads=self.heads,
                     dropout=0.0,
                     name=f"STA_CA{i}",
                 ),
                 "SA": TransformerLayer(
                     dim=self.latent_dim,
-                    heads=8,
+                    heads=self.heads,
                     dropout=0.0,
                     name=f"STA_SA{i}",
                 ),

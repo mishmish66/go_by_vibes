@@ -57,6 +57,17 @@ def train_step(
         loss_for_grad, has_aux=True
     )(vibe_state.extract_params(), rng)
 
+    def concat_leaves(tree):
+        if isinstance(tree, dict):
+            return jnp.concatenate([concat_leaves(child) for child in tree.values()])
+        elif isinstance(tree, jax.Array):
+            return jnp.ravel(tree)
+        else:
+            jnp.array([])
+
+    total_grad = concat_leaves(vibe_grad)
+    total_grad_norm = jnp.linalg.norm(total_grad)
+
     id_tap(
         lambda loss_infos, _: print(
             f"reconstruction_loss: {loss_infos['reconstruction_loss']}\n"
@@ -70,7 +81,7 @@ def train_step(
 
     return (
         vibe_state,
-        loss_infos,
+        {"total_grad_norm": total_grad_norm, **loss_infos},
     )
 
 
@@ -81,5 +92,5 @@ def dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, train_config: TrainConfig)
         + epoch_i * steps_per_epoch
         + chunk_i // train_config.every_k
     )
-    if chunk_i % every_k == 0:
+    if chunk_i % train_config.every_k == 0:
         wandb.log(infos)

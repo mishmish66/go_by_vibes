@@ -1,3 +1,5 @@
+from finger import Finger
+
 from physics.gen.mass_matrix import mass_matrix
 from physics.gen.bias_forces import bias_forces
 
@@ -35,7 +37,7 @@ from training.nets import (
     encoded_action_dim,
 )
 
-from unitree_go1 import UnitreeGo1
+# from unitree_go1 import UnitreeGo1
 
 from training.train import train_step, dump_to_wandb
 from policy import random_policy  # , max_dist_policy
@@ -71,10 +73,10 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 
 ### Set up RL stuff
 
-learning_rate = float(1e-5)
-every_k = 1
+learning_rate = float(1e-4)
+every_k = 8
 
-env_cls = UnitreeGo1
+env_cls = Finger
 
 env_config = env_cls.get_config()
 
@@ -82,14 +84,15 @@ vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
     optimizer=optax.MultiSteps(
         optax.chain(
-            optax.clip_by_global_norm(10.0),
+            optax.zero_nans(),
+            optax.clip_by_global_norm(200.0),
             optax.lion(learning_rate=learning_rate),
         ),
         every_k_schedule=every_k,
     ),
     state_encoder=StateEncoder(),
     action_encoder=ActionEncoder(),
-    transition_model=TransitionModel(1e4, 256),
+    transition_model=TransitionModel(1e4, 64, 4),
     state_decoder=StateDecoder(env_config.state_dim),
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
@@ -115,13 +118,13 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    mode="disabled",
+    # mode="disabled",
 )
 
 
 def dump_to_wandb_for_tap(tap_pack, _):
     infos, rollout_i, epoch_i, chunk_i = tap_pack
-    dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, every_k)
+    dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, vibe_config)
 
 
 def do_rollout(carry_pack, _):
@@ -138,6 +141,8 @@ def do_rollout(carry_pack, _):
         vibe_config,
         rngs,
     )
+    
+    env_cls.send_wandb_video(rollout_result[0][0], env_config)
 
     # from jax import config
     # config.update("jax_disable_jit", True)
