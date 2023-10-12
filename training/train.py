@@ -58,6 +58,7 @@ def train_step(
 
         rng, key = jax.random.split(key)
         # rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
+        rngs = jax.random.split(rng, n_traj)
         losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
             composed_whole_traj_losses,
             (0, 0, 0, None, None),
