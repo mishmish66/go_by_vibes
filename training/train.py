@@ -90,17 +90,11 @@ def train_step(
         def process_infos(infos):
             return Infos.init(
                 loss_infos=jax.tree_map(
-                    lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
+                    lambda x: jnp.mean(x, axis=0),
                     infos.loss_infos,
                 ),
-                plain_infos=jax.tree_map(
-                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
-                    infos.plain_infos,
-                ),
-                masked_infos=jax.tree_map(
-                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
-                    infos.masked_infos,
-                ),
+                plain_infos=infos.plain_infos,
+                masked_infos=infos.masked_infos,
             )
 
         # random_i_infos = process_infos(infos_per_traj_per_random_index)
