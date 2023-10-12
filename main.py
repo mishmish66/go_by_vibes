@@ -55,7 +55,7 @@ from jax import config
 config.update("jax_debug_nans", True)
 
 # Generate random key
-key = jax.random.PRNGKey(1)
+key = jax.random.PRNGKey(3)
 
 ### Set up physics sim stuff
 rng, key = jax.random.split(key)
