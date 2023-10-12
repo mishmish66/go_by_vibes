@@ -33,8 +33,8 @@ def train_step(
         rngs = jax.random.split(rng, (n_traj, n_random_index_samples))
 
         losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
-            jax.vmap(composed_random_index_losses, (0, 0, 0, None, None)),
-            (0, None, None, None, None),
+            jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
+            (0, 0, 0, None, None),
         )(
             rngs,
             rollout_result[0],
@@ -46,8 +46,8 @@ def train_step(
         rng, key = jax.random.split(key)
         rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
         losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
-            jax.vmap(composed_whole_traj_losses, (0, 0, 0, None, None)),
-            (0, None, None, None, None),
+            jax.vmap(composed_whole_traj_losses, (0, None, None, None, None)),
+            (0, 0, 0, None, None),
         )(
             rngs,
             rollout_result[0],
@@ -94,7 +94,7 @@ def train_step(
 
         gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
 
-        infos.add_plain_info("gate_value", gate_value)
+        infos = infos.add_plain_info("gate_value", gate_value)
 
         return (
             losses.reconstruction_loss * train_config.reconstruction_weight
@@ -109,9 +109,9 @@ def train_step(
         )
 
     (
+        (_, loss_infos),
         vibe_grad,
-        loss_infos,
-    ) = jax.grad(
+    ) = jax.value_and_grad(
         loss_for_grad, has_aux=True
     )(vibe_state.extract_params(), rng)
 
@@ -137,7 +137,7 @@ def train_step(
 
     vibe_state = vibe_state.apply_gradients(vibe_grad, train_config)
 
-    loss_infos.add_plain_info("total_grad_norm", total_grad_norm)
+    loss_infos = loss_infos.add_plain_info("total_grad_norm", total_grad_norm)
 
     return vibe_state, loss_infos
 

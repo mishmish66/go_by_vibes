@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import jax
+
 from jax.tree_util import register_pytree_node_class
 from jax.experimental.host_callback import id_tap
 
@@ -30,13 +32,25 @@ class Infos:
         )
 
     def add_loss_info(self, name, value):
-        self.loss_infos[name] = value
+        return Infos.init(
+            loss_infos={**self.loss_infos, name: value},
+            plain_infos=self.plain_infos,
+            masked_infos=self.masked_infos,
+        )
 
     def add_plain_info(self, name, value):
-        self.plain_infos[name] = value
+        return Infos.init(
+            loss_infos=self.loss_infos,
+            plain_infos={**self.plain_infos, name: value},
+            masked_infos=self.masked_infos,
+        )
 
     def add_masked_info(self, name, value, mask):
-        self.masked_infos[name] = (value, mask)
+        return Infos.init(
+            loss_infos=self.loss_infos,
+            plain_infos=self.plain_infos,
+            masked_infos={**self.masked_infos, name: (value, mask)},
+        )
 
     def tree_flatten(self):
         loss_info_names = list(self.loss_infos.keys())

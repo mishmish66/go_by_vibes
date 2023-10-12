@@ -66,7 +66,7 @@ def encode_state(
 
 def get_neighborhood_state(key, latent_state):
     rng, key = jax.random.split(key)
-    ball_sample = jax.random.normal(rng, encoded_state_dim)
+    ball_sample = jax.random.ball(rng, encoded_state_dim)
 
     return latent_state + ball_sample
 

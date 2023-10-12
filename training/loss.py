@@ -154,7 +154,9 @@ def composed_whole_traj_losses(
         actions,
     )
 
-    result_infos.add_loss_info("reconstruction_loss", reconstruction_loss)
+    result_infos = result_infos.add_loss_info(
+        "reconstruction_loss", reconstruction_loss
+    )
 
     # Evaluate dispersion loss
     dispersion_loss = loss_disperse(latent_states)
@@ -173,8 +175,8 @@ def composed_whole_traj_losses(
 
     condensation_loss = loss_condense(latent_random_actions)
 
-    result_infos.add_plain_info("dispersion_loss", dispersion_loss)
-    result_infos.add_plain_info("condensation_loss", condensation_loss)
+    result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
+    result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
 
     return (
         Losses.init(
@@ -263,8 +265,10 @@ def composed_random_index_losses(
     state_prime_diff_mags = jnp.linalg.norm(state_prime_diffs, axis=-1)
     state_prime_diff_mag_logs = jnp.log(state_prime_diff_mags)
 
-    result_infos.add_masked_info(
-        "state_prime_diff_mag_logs", state_prime_diff_mag_logs, inferred_next_state_mask
+    result_infos = result_infos.add_masked_info(
+        "state_prime_diff_mag_logs",
+        state_prime_diff_mag_logs,
+        inferred_next_state_mask,
     )
 
     # Evaluate the smoothness loss
@@ -272,7 +276,7 @@ def composed_random_index_losses(
     rng, key = jax.random.split(key)
     neighborhood_latent_start_state = get_neighborhood_state(
         rng,
-        states[last_known_state_i],
+        prev_latent_states[last_known_state_i],
     )
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, latent_actions.shape[0])
@@ -296,8 +300,8 @@ def composed_random_index_losses(
         neighborhood_next_states_prime,
     )
 
-    result_infos.add_loss_info("smoothness_loss", smoothness_loss)
-    result_infos.add_loss_info("forward_loss", forward_loss)
+    result_infos = result_infos.add_loss_info("smoothness_loss", smoothness_loss)
+    result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
 
     return (
         Losses.init(forward_loss=forward_loss, smoothness_loss=smoothness_loss),
