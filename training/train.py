@@ -107,7 +107,7 @@ def train_step(
 
         infos = infos.add_plain_info("gate_value", gate_value)
 
-        return losses.reconstruction_loss
+        return losses.reconstruction_loss, infos
         # return (
         #     losses.reconstruction_loss * train_config.reconstruction_weight
         #     + (
