@@ -68,7 +68,7 @@ def train_step(
         losses = Losses.merge(random_index_losses, whole_traj_losses)
 
         shaped_sigmoid_reconstruction_loss = 1 / (
-            1 + jnp.exp(losses.reconstruction_loss + 10)
+            1 + jnp.exp(losses.reconstruction_loss + 50)
         )
 
         def process_infos(infos):

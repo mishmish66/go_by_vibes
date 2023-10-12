@@ -123,19 +123,24 @@ def composed_whole_traj_losses(
 
     result_infos = Infos.init()
 
+    latent_state_gauss_params = jax.vmap(get_latent_state_gaussian, (0, None, None))(
+        states, vibe_state, train_config
+    )
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[0])
-    latent_states = jax.vmap(encode_state, (0, 0, None, None))(
-        rngs, states, vibe_state, train_config
-    )
+    latent_states = jax.vmap(sample_gaussian)(rngs, latent_state_gauss_params)
 
     prev_latent_states = latent_states[:-1]
 
+    latent_action_gauss_params = jax.vmap(
+        get_latent_action_gaussian,
+        (0, 0, None, None),
+    )(actions, prev_latent_states, vibe_state, train_config)
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[0])
-    latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
-        rngs, actions, prev_latent_states, vibe_state, train_config
-    )
+    latent_actions = jax.vmap(sample_gaussian)(rngs, latent_action_gauss_params)
 
     state_space_gaussians = jax.vmap(
         get_state_space_gaussian,
@@ -175,8 +180,64 @@ def composed_whole_traj_losses(
 
     condensation_loss = loss_condense(latent_random_actions)
 
+    reconstructed_state_vars = state_space_gaussians[
+        ..., train_config.env_config.state_dim :
+    ]
+    reconstructed_state_means = state_space_gaussians[
+        ..., : train_config.env_config.state_dim
+    ]
+    reconstructed_state_mean_stdev_log = jnp.log(
+        jnp.mean(jnp.std(reconstructed_state_means, axis=0))
+    )
+
+    reconstructed_action_vars = action_space_gaussians[
+        ..., train_config.env_config.act_dim :
+    ]
+    reconstructed_action_means = action_space_gaussians[
+        ..., : train_config.env_config.act_dim
+    ]
+    reconstructed_action_mean_stdev_log = jnp.log(
+        jnp.mean(jnp.std(reconstructed_action_means, axis=0))
+    )
+
+    latent_state_variances = latent_state_gauss_params[..., encoded_state_dim:]
+    latent_state_means = latent_state_gauss_params[..., :encoded_state_dim]
+    latent_state_mean_stdev_log = jnp.log(jnp.mean(jnp.std(latent_state_means, axis=0)))
+
+    latent_action_variances = latent_action_gauss_params[..., encoded_action_dim:]
+    latent_action_means = latent_action_gauss_params[..., :encoded_action_dim]
+    latent_action_mean_stdev_log = jnp.log(
+        jnp.mean(jnp.std(latent_action_means, axis=0))
+    )
+
     result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
     result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
+
+    result_infos = result_infos.add_plain_info(
+        "latent_state_var_logs", jnp.log(latent_state_variances)
+    )
+    result_infos = result_infos.add_plain_info(
+        "latent_state_mean_stdev_log", latent_state_mean_stdev_log
+    )
+    result_infos = result_infos.add_plain_info(
+        "latent_action_var_logs", jnp.log(latent_action_variances)
+    )
+    result_infos = result_infos.add_plain_info(
+        "latent_action_mean_stdev_log", latent_action_mean_stdev_log
+    )
+    
+    result_infos = result_infos.add_plain_info(
+        "reconstructed_state_var_logs", jnp.log(reconstructed_state_vars)
+    )
+    result_infos = result_infos.add_plain_info(
+        "reconstructed_state_mean_stdev_log", reconstructed_state_mean_stdev_log
+    )
+    result_infos = result_infos.add_plain_info(
+        "reconstructed_action_var_logs", jnp.log(reconstructed_action_vars)
+    )
+    result_infos = result_infos.add_plain_info(
+        "reconstructed_action_mean_stdev_log", reconstructed_action_mean_stdev_log
+    )
 
     return (
         Losses.init(

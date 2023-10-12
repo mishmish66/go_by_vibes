@@ -50,10 +50,6 @@ from contextlib import redirect_stdout
 
 import wandb
 
-from jax import config
-
-config.update("jax_debug_nans", True)
-
 # Generate random key
 key = jax.random.PRNGKey(1)
 
@@ -74,7 +70,7 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 ### Set up RL stuff
 
 learning_rate = float(1e-4)
-every_k = 4
+every_k = 2
 
 env_cls = Finger
 
@@ -102,7 +98,10 @@ vibe_config = TrainConfig.init(
     traj_per_rollout=1024,
     rollout_length=250,
     reconstruction_weight=1.0,
-    forward_weight=0.1,
+    forward_weight=1.0,
+    smoothness_weight=0.0,  # 1.0,
+    condensation_weight=0.0,  # 1.0,
+    dispersion_weight=0.0,  # 1.0
 )
 
 rng, key = jax.random.split(key)
