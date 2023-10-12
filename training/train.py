@@ -190,7 +190,7 @@ def train_step(
                 lambda x: jnp.mean(x, axis=0), infos_per_traj.loss_infos
             ),
             plain_infos=jax.tree_map(
-                lambda x: rearrange(x, "t n ... -> (t n) ..."),
+                jnp.ravel,
                 infos_per_traj.plain_infos,
             ),
             masked_infos=jax.tree_map(
