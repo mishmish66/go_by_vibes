@@ -31,36 +31,21 @@ def train_step(
 
         rng, key = jax.random.split(key)
         rngs = jax.random.split(rng, (n_traj, n_random_index_samples))
-
-        # losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
-        #     jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
-        #     (0, 0, 0, None, None),
-        # )(
-        #     rngs,
-        #     rollout_result[0],
-        #     rollout_result[1],
-        #     updated_vibe_state,
-        #     train_config,
-        # )
-
-        # rng, key = jax.random.split(key)
-        # rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
-        # losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
-        #     jax.vmap(composed_whole_traj_losses, (0, None, None, None, None)),
-        #     (0, 0, 0, None, None),
-        # )(
-        #     rngs,
-        #     rollout_result[0],
-        #     rollout_result[1],
-        #     updated_vibe_state,
-        #     train_config,
-        # )
+        losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
+            jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
+            (0, 0, 0, None, None),
+        )(
+            rngs,
+            rollout_result[0],
+            rollout_result[1],
+            updated_vibe_state,
+            train_config,
+        )
 
         rng, key = jax.random.split(key)
-        # rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
-        rngs = jax.random.split(rng, n_traj)
+        rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
         losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
-            composed_whole_traj_losses,
+            jax.vmap(composed_whole_traj_losses, (0, None, None, None, None)),
             (0, 0, 0, None, None),
         )(
             rngs,
@@ -72,8 +57,7 @@ def train_step(
 
         def process_losses(losses):
             return jax.tree_map(
-                # lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
-                lambda x: jnp.mean(x, axis=0),
+                lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
                 losses,
             )
 
@@ -90,41 +74,45 @@ def train_step(
         def process_infos(infos):
             return Infos.init(
                 loss_infos=jax.tree_map(
-                    lambda x: jnp.mean(x, axis=0),
+                    lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
                     infos.loss_infos,
                 ),
-                plain_infos=infos.plain_infos,
-                masked_infos=infos.masked_infos,
+                plain_infos=jax.tree_map(
+                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
+                    infos.plain_infos,
+                ),
+                masked_infos=jax.tree_map(
+                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
+                    infos.masked_infos,
+                ),
             )
 
-        # random_i_infos = process_infos(infos_per_traj_per_random_index)
+        random_i_infos = process_infos(infos_per_traj_per_random_index)
         whole_traj_infos = process_infos(infos_per_traj_per_gauss_sample)
 
-        # infos = Infos.merge(random_i_infos, whole_traj_infos)
+        infos = Infos.merge(random_i_infos, whole_traj_infos)
         infos = whole_traj_infos
 
         gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
 
         infos = infos.add_plain_info("gate_value", gate_value)
 
-        return losses.reconstruction_loss * train_config.reconstruction_weight, infos # (
-        #     losses.reconstruction_loss * train_config.reconstruction_weight
-        #     + (
-        #         losses.forward_loss * train_config.forward_weight
-        #         + losses.smoothness_loss * train_config.smoothness_weight
-        #         + losses.dispersion_loss * train_config.dispersion_weight
-        #         + losses.condensation_loss * train_config.condensation_weight
-        #     )
-        #     * gate_value,
-        #     infos,
-        # )
+        return (
+            losses.reconstruction_loss * train_config.reconstruction_weight
+            + (
+                losses.forward_loss
+                * train_config.forward_weight
+                # + losses.smoothness_loss * train_config.smoothness_weight
+                # + losses.dispersion_loss * train_config.dispersion_weight
+                # + losses.condensation_loss * train_config.condensation_weight
+            )
+            * gate_value,
+            infos,
+        )
 
-    (
-        vibe_grad,
-        loss_infos
-    ) = jax.grad(
-        loss_for_grad, has_aux=True
-    )(vibe_state.extract_params(), rng)
+    (vibe_grad, loss_infos) = jax.grad(loss_for_grad, has_aux=True)(
+        vibe_state.extract_params(), rng
+    )
 
     def concat_leaves(tree):
         if isinstance(tree, dict):
