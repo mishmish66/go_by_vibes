@@ -39,7 +39,7 @@ from training.nets import (
 
 # from unitree_go1 import UnitreeGo1
 
-from training.train import train_step, dump_to_wandb
+from training.train import train_step
 from policy import random_policy  # , max_dist_policy
 
 import timeit
@@ -122,9 +122,9 @@ wandb.init(
 )
 
 
-def dump_to_wandb_for_tap(tap_pack, _):
-    infos, rollout_i, epoch_i, chunk_i = tap_pack
-    dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, vibe_config)
+# def dump_to_wandb_for_tap(tap_pack, _):
+#     infos, rollout_i, epoch_i, chunk_i = tap_pack
+#     dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, vibe_config)
 
 
 def do_rollout(carry_pack, _):

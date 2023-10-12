@@ -265,8 +265,8 @@ def composed_loss(
     forward_loss = jnp.mean(forward_loss_per_random_index, axis=0)
 
     result_infos = Infos.merge(result_infos, result_infos_per_random_index)
-    result_infos.add_loss_info("forward_loss", forward_loss)
-    result_infos.add_loss_info("reconstruction_loss", reconstruction_loss)
+    result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
+    result_infos = result_infos.add_loss_info("reconstruction_loss", reconstruction_loss)
 
     # Gather info for logging
 

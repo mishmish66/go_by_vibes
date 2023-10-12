@@ -61,7 +61,7 @@ def train_step(
 
         gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
 
-        infos.add_plain_info("gate_value", gate_value)
+        infos = infos.add_plain_info("gate_value", gate_value)
 
         return losses.reconstruction_loss + losses.forward_loss * gate_value, infos
 
@@ -94,17 +94,6 @@ def train_step(
 
     vibe_state = vibe_state.apply_gradients(vibe_grad, train_config)
 
-    loss_infos.add_plain_info("total_grad_norm", total_grad_norm)
+    loss_infos = loss_infos.add_plain_info("total_grad_norm", total_grad_norm)
 
     return vibe_state, loss_infos
-
-
-def dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, train_config: TrainConfig):
-    steps_per_epoch = train_config.traj_per_rollout // train_config.batch_size
-    step = (
-        rollout_i * train_config.epochs
-        + epoch_i * steps_per_epoch
-        + chunk_i // train_config.every_k
-    )
-    if chunk_i % train_config.every_k == 0:
-        wandb.log(infos)
