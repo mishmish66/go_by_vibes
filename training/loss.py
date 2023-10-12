@@ -262,10 +262,10 @@ def composed_loss(
     forward_loss_per_random_index, result_infos_per_random_index = jax.vmap(
         per_random_index
     )(rngs)
-    forward_loss = jnp.mean(forward_loss_per_random_index, axis=0)
+    forward_loss = 0 # jnp.mean(forward_loss_per_random_index, axis=0)
 
-    result_infos = Infos.merge(result_infos, result_infos_per_random_index)
-    result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
+    # result_infos = Infos.merge(result_infos, result_infos_per_random_index)
+    # result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
     result_infos = result_infos.add_loss_info("reconstruction_loss", reconstruction_loss)
 
     # Gather info for logging
@@ -273,7 +273,7 @@ def composed_loss(
     return (
         Losses.init(
             reconstruction_loss=reconstruction_loss,
-            forward_loss=forward_loss,
+            # forward_loss=forward_loss,
         ),
         result_infos,
     )
