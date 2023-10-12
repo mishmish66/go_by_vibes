@@ -112,7 +112,7 @@ class Infos:
             [f"\n\t{name}: {value}" for name, value in self.loss_infos.items()]
         )
 
-        return loss_msg + "\n" + info_msg
+        return loss_msg
 
     def host_dump_to_console(self):
         print(self.host_get_str())
