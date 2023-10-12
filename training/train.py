@@ -32,21 +32,34 @@ def train_step(
         rng, key = jax.random.split(key)
         rngs = jax.random.split(rng, (n_traj, n_random_index_samples))
 
-        losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
-            jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
-            (0, 0, 0, None, None),
-        )(
-            rngs,
-            rollout_result[0],
-            rollout_result[1],
-            updated_vibe_state,
-            train_config,
-        )
+        # losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
+        #     jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
+        #     (0, 0, 0, None, None),
+        # )(
+        #     rngs,
+        #     rollout_result[0],
+        #     rollout_result[1],
+        #     updated_vibe_state,
+        #     train_config,
+        # )
+
+        # rng, key = jax.random.split(key)
+        # rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
+        # losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
+        #     jax.vmap(composed_whole_traj_losses, (0, None, None, None, None)),
+        #     (0, 0, 0, None, None),
+        # )(
+        #     rngs,
+        #     rollout_result[0],
+        #     rollout_result[1],
+        #     updated_vibe_state,
+        #     train_config,
+        # )
 
         rng, key = jax.random.split(key)
         rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
         losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
-            jax.vmap(composed_whole_traj_losses, (0, None, None, None, None)),
+            composed_whole_traj_losses,
             (0, 0, 0, None, None),
         )(
             rngs,
@@ -58,14 +71,16 @@ def train_step(
 
         def process_losses(losses):
             return jax.tree_map(
-                lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
+                # lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
+                lambda x: jnp.mean(x, axis=0),
                 losses,
             )
 
-        random_index_losses = process_losses(losses_per_traj_per_random_index)
+        # random_index_losses = process_losses(losses_per_traj_per_random_index)
         whole_traj_losses = process_losses(losses_per_traj_per_gauss_sample)
 
-        losses = Losses.merge(random_index_losses, whole_traj_losses)
+        # losses = Losses.merge(random_index_losses, whole_traj_losses)
+        losses = whole_traj_losses
 
         shaped_sigmoid_reconstruction_loss = 1 / (
             1 + jnp.exp(losses.reconstruction_loss + 50)
