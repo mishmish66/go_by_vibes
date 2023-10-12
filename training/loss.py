@@ -286,7 +286,7 @@ class Losses:
     forward_loss: any
 
     @classmethod
-    def init(cls, reconstruction_loss, forward_loss):
+    def init(cls, reconstruction_loss=0, forward_loss=0):
         return cls(
             reconstruction_loss=reconstruction_loss,
             forward_loss=forward_loss,
