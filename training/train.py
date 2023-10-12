@@ -18,8 +18,8 @@ def train_step(
     vibe_state: VibeState,
     train_config: TrainConfig,
     rollout_result,
-    n_random_index_samples=1,
-    n_gaussian_samples=1,
+    n_random_index_samples=16,
+    n_gaussian_samples=32,
 ):
     """Train for a single step."""
 
@@ -68,7 +68,7 @@ def train_step(
         losses = Losses.merge(random_index_losses, whole_traj_losses)
 
         shaped_sigmoid_reconstruction_loss = 1 / (
-            1 + jnp.exp(losses.reconstruction_loss + 50)
+            1 + jnp.exp(100 * (losses.reconstruction_loss + 10))
         )
 
         def process_infos(infos):
