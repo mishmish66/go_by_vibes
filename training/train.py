@@ -107,17 +107,17 @@ def train_step(
 
         infos = infos.add_plain_info("gate_value", gate_value)
 
-        return (
-            losses.reconstruction_loss * train_config.reconstruction_weight
-            + (
-                losses.forward_loss * train_config.forward_weight
-                + losses.smoothness_loss * train_config.smoothness_weight
-                + losses.dispersion_loss * train_config.dispersion_weight
-                + losses.condensation_loss * train_config.condensation_weight
-            )
-            * gate_value,
-            infos,
-        )
+        return losses.reconstruction_loss * train_config.reconstruction_weight, infos # (
+        #     losses.reconstruction_loss * train_config.reconstruction_weight
+        #     + (
+        #         losses.forward_loss * train_config.forward_weight
+        #         + losses.smoothness_loss * train_config.smoothness_weight
+        #         + losses.dispersion_loss * train_config.dispersion_weight
+        #         + losses.condensation_loss * train_config.condensation_weight
+        #     )
+        #     * gate_value,
+        #     infos,
+        # )
 
     (
         vibe_grad,
