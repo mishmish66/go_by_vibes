@@ -124,6 +124,7 @@ def train_step(
             jnp.array([])
 
     total_grad = concat_leaves(vibe_grad)
+    total_grad = jnp.nan_to_num(total_grad)
     total_grad_norm = jnp.linalg.norm(total_grad)
 
     # id_tap(
