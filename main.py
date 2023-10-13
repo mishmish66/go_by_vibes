@@ -50,8 +50,10 @@ from contextlib import redirect_stdout
 
 import wandb
 
+seed = 0
+
 # Generate random key
-key = jax.random.PRNGKey(4)
+key = jax.random.PRNGKey(seed)
 
 ### Set up physics sim stuff
 rng, key = jax.random.split(key)
@@ -92,6 +94,7 @@ vibe_config = TrainConfig.init(
     state_decoder=StateDecoder(env_config.state_dim),
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
+    seed=seed,
     rollouts=1024,
     epochs=1024,
     batch_size=256,
@@ -102,6 +105,10 @@ vibe_config = TrainConfig.init(
     smoothness_weight=0.1,
     condensation_weight=1e-4,
     dispersion_weight=1e-4,
+    forward_gate_sharpness=1,
+    smoothness_gate_sharpness=1,
+    dispersion_gate_sharpness=10,
+    condensation_gate_sharpness=10,
 )
 
 rng, key = jax.random.split(key)

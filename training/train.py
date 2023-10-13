@@ -31,7 +31,9 @@ def train_step(
 
         rng, key = jax.random.split(key)
         rngs_per_traj = jax.random.split(rng, n_traj)
-        rngs = jax.vmap(jax.random.split, (0, None))(rngs_per_traj, n_random_index_samples)
+        rngs = jax.vmap(jax.random.split, (0, None))(
+            rngs_per_traj, n_random_index_samples
+        )
         losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
             jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
             (0, 0, 0, None, None),
@@ -68,10 +70,6 @@ def train_step(
 
         losses = Losses.merge(random_index_losses, whole_traj_losses)
 
-        shaped_sigmoid_reconstruction_loss = 1 / (
-            1 + jnp.exp(losses.reconstruction_loss + 50)
-        )
-
         def process_infos(infos):
             return Infos.init(
                 loss_infos=jax.tree_map(
@@ -93,22 +91,11 @@ def train_step(
 
         infos = Infos.merge(random_i_infos, whole_traj_infos)
 
-        gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
+        total_loss, loss_infos = losses.get_total(train_config)
 
-        infos = infos.add_plain_info("gate_value", gate_value)
+        infos = Infos.merge(infos, loss_infos)
 
-        return (
-            losses.reconstruction_loss * train_config.reconstruction_weight
-            + (
-                losses.forward_loss
-                * train_config.forward_weight
-                + losses.smoothness_loss * train_config.smoothness_weight
-                + losses.dispersion_loss * train_config.dispersion_weight
-                + losses.condensation_loss * train_config.condensation_weight
-            )
-            * gate_value,
-            infos,
-        )
+        return total_loss, infos
 
     (vibe_grad, loss_infos) = jax.grad(loss_for_grad, has_aux=True)(
         vibe_state.extract_params(), rng
