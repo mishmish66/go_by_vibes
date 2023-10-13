@@ -475,18 +475,18 @@ class Losses:
             + scaled_condensation_loss
         )
 
-        infos.add_loss_info("total_loss", total_loss)
+        infos = infos.add_loss_info("total_loss", total_loss)
 
-        infos.add_loss_info("reconstruction_loss", scaled_reconstruction_loss)
-        infos.add_loss_info("forward_loss", scaled_forward_loss)
-        infos.add_loss_info("smoothness_loss", scaled_smoothness_loss)
-        infos.add_loss_info("dispersion_loss", scaled_dispersion_loss)
-        infos.add_loss_info("condensation_loss", scaled_condensation_loss)
+        infos = infos.add_loss_info("reconstruction_loss", scaled_reconstruction_loss)
+        infos = infos.add_loss_info("forward_loss", scaled_forward_loss)
+        infos = infos.add_loss_info("smoothness_loss", scaled_smoothness_loss)
+        infos = infos.add_loss_info("dispersion_loss", scaled_dispersion_loss)
+        infos = infos.add_loss_info("condensation_loss", scaled_condensation_loss)
 
-        infos.add_plain_info("forward_gate", forward_gate)
-        infos.add_plain_info("smoothness_gate", smoothness_gate)
-        infos.add_plain_info("dispersion_gate", dispersion_gate)
-        infos.add_plain_info("condensation_gate", condensation_gate)
+        infos = infos.add_plain_info("forward_gate", forward_gate)
+        infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
+        infos = infos.add_plain_info("dispersion_gate", dispersion_gate)
+        infos = infos.add_plain_info("condensation_gate", condensation_gate)
 
         return total_loss, infos
 
