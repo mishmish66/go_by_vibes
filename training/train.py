@@ -90,7 +90,6 @@ def train_step(
         whole_traj_infos = process_infos(infos_per_traj_per_gauss_sample)
 
         infos = Infos.merge(random_i_infos, whole_traj_infos)
-        infos = whole_traj_infos
 
         gate_value = jax.lax.stop_gradient(shaped_sigmoid_reconstruction_loss)
 
