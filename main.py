@@ -51,7 +51,7 @@ from contextlib import redirect_stdout
 import wandb
 
 # Generate random key
-key = jax.random.PRNGKey(1)
+key = jax.random.PRNGKey(4)
 
 ### Set up physics sim stuff
 rng, key = jax.random.split(key)
@@ -117,7 +117,7 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    # mode="disabled",
+    mode="disabled",
 )
 
 
