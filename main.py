@@ -99,7 +99,7 @@ vibe_config = TrainConfig.init(
     rollout_length=250,
     reconstruction_weight=1.0,
     forward_weight=1.0,
-    smoothness_weight=0.0,  # 1.0,
+    smoothness_weight=0.1,
     condensation_weight=0.0,  # 1.0,
     dispersion_weight=0.0,  # 1.0
 )
