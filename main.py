@@ -70,7 +70,7 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 ### Set up RL stuff
 
 learning_rate = float(1e-4)
-every_k = 2
+every_k = 1
 
 env_cls = Finger
 
@@ -93,7 +93,7 @@ vibe_config = TrainConfig.init(
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
     rollouts=1024,
-    epochs=8,
+    epochs=1024,
     batch_size=256,
     traj_per_rollout=1024,
     rollout_length=250,
