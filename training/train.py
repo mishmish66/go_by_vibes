@@ -30,7 +30,8 @@ def train_step(
         n_traj = rollout_result[0].shape[0]
 
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, (n_traj, n_random_index_samples))
+        rngs_per_traj = jax.random.split(rng, n_traj)
+        rngs = jax.vmap(jax.random.split, (0, None))(rngs_per_traj, n_random_index_samples)
         losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
             jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
             (0, 0, 0, None, None),
@@ -43,7 +44,8 @@ def train_step(
         )
 
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, (n_traj, n_gaussian_samples))
+        rngs_per_traj = jax.random.split(rng, n_traj)
+        rngs = jax.vmap(jax.random.split, (0, None))(rngs_per_traj, n_gaussian_samples)
         losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
             jax.vmap(composed_whole_traj_losses, (0, None, None, None, None)),
             (0, 0, 0, None, None),
