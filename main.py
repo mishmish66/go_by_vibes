@@ -100,8 +100,8 @@ vibe_config = TrainConfig.init(
     reconstruction_weight=1.0,
     forward_weight=1.0,
     smoothness_weight=0.1,
-    condensation_weight=0.0,  # 1.0,
-    dispersion_weight=0.0,  # 1.0
+    condensation_weight=1e-4,
+    dispersion_weight=1e-4,
 )
 
 rng, key = jax.random.split(key)
