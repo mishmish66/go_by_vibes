@@ -91,13 +91,14 @@ def train_step(
 
         infos = Infos.merge(random_i_infos, whole_traj_infos)
 
-        total_loss, loss_infos = losses.get_total(train_config)
+        # total_loss, loss_infos = losses.get_total(train_config)
 
-        infos = Infos.merge(infos, loss_infos)
+        # infos = Infos.merge(infos, loss_infos)
 
-        return total_loss, infos
+        # return total_loss, infos
+        return losses.to_vector(), (infos, losses)
 
-    (vibe_grad, loss_infos) = jax.grad(loss_for_grad, has_aux=True)(
+    (vibe_jac, (loss_infos, losses)) = jax.jacrev(loss_for_grad, has_aux=True)(
         vibe_state.extract_params(), rng
     )
 
@@ -108,19 +109,22 @@ def train_step(
             return jnp.ravel(tree)
         else:
             jnp.array([])
+            
+    grad_norms = [
+        jnp.linalg.norm(concat_leaves(grad)) for grad in vibe_jac
+    ]
+        
+    loss_infos = loss_infos.add_plain_info("reconstruction_grad_norm", grad_norms[0])
+    loss_infos = loss_infos.add_plain_info("forward_grad_norm", grad_norms[1])
+    loss_infos = loss_infos.add_plain_info("smoothness_grad_norm", grad_norms[2])
+    loss_infos = loss_infos.add_plain_info("dispersion_grad_norm", grad_norms[3])
+    loss_infos = loss_infos.add_plain_info("condensation_grad_norm", grad_norms[4])
+    
+    vibe_grad = jax.tree_map(lambda *x: jnp.sum(jnp.stack(x), axis=0), *vibe_jac)
 
     total_grad = concat_leaves(vibe_grad)
     total_grad = jnp.nan_to_num(total_grad)
     total_grad_norm = jnp.linalg.norm(total_grad)
-
-    # id_tap(
-    #     lambda loss_infos, _: print(
-    #         f"reconstruction_loss: {loss_infos['reconstruction_loss']}\n"
-    #         + f"forward_loss: {loss_infos['forward_loss']}\n"
-    #         + f"gate_value: {loss_infos['gate_value']}\n"
-    #     ),
-    #     loss_infos,
-    # )
 
     vibe_state = vibe_state.apply_gradients(vibe_grad, train_config)
 
