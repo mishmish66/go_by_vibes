@@ -101,13 +101,15 @@ def train_step(
     def loss_for_grad_good(vibe_params, key):
         losses, infos = loss_for_grad(vibe_params, key)
         
+        losses = Losses.from_list(losses)
+        
         losses = Losses.init(
             reconstruction_loss=losses.reconstruction_loss,
             forward_loss = losses.forward_loss,
             smoothness_loss=losses.smoothness_loss,
         )
         
-        return losses, infos
+        return losses.to_list(), infos
 
     vibe_grads_bad, _ = jax.jacrev(loss_for_grad, has_aux=True)(
         vibe_state.extract_params(), rng

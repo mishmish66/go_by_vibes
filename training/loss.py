@@ -382,11 +382,11 @@ class Losses:
     @classmethod
     def init(
         cls,
-        reconstruction_loss=0,
-        forward_loss=0,
-        smoothness_loss=0,
-        dispersion_loss=0,
-        condensation_loss=0,
+        reconstruction_loss=0.0,
+        forward_loss=0.0,
+        smoothness_loss=0.0,
+        dispersion_loss=0.0,
+        condensation_loss=0.0,
     ):
         return cls(
             reconstruction_loss=reconstruction_loss,
@@ -506,6 +506,10 @@ class Losses:
             self.dispersion_loss,
             self.condensation_loss,
         ]
+    
+    @classmethod
+    def from_list(cls, loss_list):
+        return cls.init(*loss_list)
     
     def total(self):
         return sum(self.to_list())
