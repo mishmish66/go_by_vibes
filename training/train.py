@@ -111,7 +111,7 @@ def train_step(
             jnp.array([])
             
     grad_norms = [
-        jnp.linalg.norm(concat_leaves(grad)) for grad in vibe_jac
+        jnp.linalg.norm(jnp.nan_to_num(concat_leaves(grad))) for grad in vibe_jac
     ]
         
     loss_infos = loss_infos.add_plain_info("reconstruction_grad_norm", grad_norms[0])
@@ -123,7 +123,7 @@ def train_step(
     vibe_grad = jax.tree_map(lambda *x: jnp.sum(jnp.stack(x), axis=0), *vibe_jac)
 
     total_grad = concat_leaves(vibe_grad)
-    total_grad = jnp.nan_to_num(total_grad)
+    # total_grad = jnp.nan_to_num(total_grad)
     total_grad_norm = jnp.linalg.norm(total_grad)
 
     vibe_state = vibe_state.apply_gradients(vibe_grad, train_config)
