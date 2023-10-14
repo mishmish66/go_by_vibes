@@ -425,7 +425,7 @@ class Losses:
             condensation_loss=a.condensation_loss + b.condensation_loss,
         )
 
-    def get_total(self, train_config: TrainConfig):
+    def scale_gate_info(self, train_config: TrainConfig):
         infos = Infos.init()
 
         forward_gate = make_gate_value(
@@ -453,26 +453,26 @@ class Losses:
             self.reconstruction_loss * train_config.reconstruction_weight
         )
         scaled_forward_loss = (
-            self.forward_loss * train_config.forward_weight #* forward_gate
+            self.forward_loss * train_config.forward_weight * forward_gate
         )
         scaled_smoothness_loss = (
-            self.smoothness_loss * train_config.smoothness_weight # * smoothness_gate
+            self.smoothness_loss * train_config.smoothness_weight * smoothness_gate
         )
         scaled_dispersion_loss = (
-            self.dispersion_loss * train_config.dispersion_weight # * dispersion_gate
+            self.dispersion_loss * train_config.dispersion_weight * dispersion_gate
         )
         scaled_condensation_loss = (
             self.condensation_loss
             * train_config.condensation_weight
-            #* condensation_gate
+            * condensation_gate
         )
 
         total_loss = (
             scaled_reconstruction_loss
             + scaled_forward_loss
             + scaled_smoothness_loss
-            # + scaled_dispersion_loss
-            # + scaled_condensation_loss
+            + scaled_dispersion_loss
+            + scaled_condensation_loss
         )
 
         infos = infos.add_loss_info("total_loss", total_loss)
@@ -487,10 +487,18 @@ class Losses:
         infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
         infos = infos.add_plain_info("dispersion_gate", dispersion_gate)
         infos = infos.add_plain_info("condensation_gate", condensation_gate)
+        
+        result_loss = Losses.init(
+            reconstruction_loss=scaled_reconstruction_loss,
+            forward_loss=scaled_forward_loss,
+            smoothness_loss=scaled_smoothness_loss,
+            dispersion_loss=scaled_dispersion_loss,
+            condensation_loss=scaled_condensation_loss,
+        )
 
-        return total_loss, infos
+        return result_loss, infos 
     
-    def to_vector(self):
+    def to_list(self):
         return [
             self.reconstruction_loss,
             self.forward_loss,
@@ -498,12 +506,9 @@ class Losses:
             self.dispersion_loss,
             self.condensation_loss,
         ]
-        
-    @classmethod
-    def from_vector(cls, vec):
-        return cls.init(
-            *vec
-        )
+    
+    def total(self):
+        return sum(self.to_list())
 
 
 def make_gate_value(x, sharpness, center):
