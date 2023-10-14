@@ -19,7 +19,7 @@ def train_step(
     train_config: TrainConfig,
     rollout_result,
     n_random_index_samples=1,
-    n_gaussian_samples=64,
+    n_gaussian_samples=16,
 ):
     """Train for a single step."""
 

@@ -72,7 +72,7 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 ### Set up RL stuff
 
 learning_rate = float(1e-4)
-every_k = 1
+every_k = 8
 
 env_cls = Finger
 
@@ -96,7 +96,7 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=1024,
-    epochs=1024,
+    epochs=128,
     batch_size=512,
     traj_per_rollout=8192,
     rollout_length=500,
@@ -124,7 +124,7 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    mode="disabled",
+    # mode="disabled",
 )
 
 
