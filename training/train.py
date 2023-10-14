@@ -97,8 +97,23 @@ def train_step(
 
         # return total_loss, infos
         return scaled_gated_losses.to_list(), infos
+    
+    def loss_for_grad_good(vibe_params, key):
+        losses, infos = loss_for_grad(vibe_params, key)
+        
+        losses = Losses.init(
+            reconstruction_loss=losses.reconstruction_loss,
+            forward_loss = losses.forward_loss,
+            smoothness_loss=losses.smoothness_loss,
+        )
+        
+        return losses, infos
 
-    vibe_grads, (loss_infos) = jax.jacrev(loss_for_grad, has_aux=True)(
+    vibe_grads_bad, _ = jax.jacrev(loss_for_grad, has_aux=True)(
+        vibe_state.extract_params(), rng
+    )
+
+    vibe_grads, (loss_infos) = jax.jacrev(loss_for_grad_good, has_aux=True)(
         vibe_state.extract_params(), rng
     )
 
@@ -113,14 +128,25 @@ def train_step(
     grad_norms = [
         jnp.linalg.norm(jnp.nan_to_num(concat_leaves(grad))) for grad in vibe_grads
     ]
+    
+    grad_diff_norms = [
+        jnp.linalg.norm(jnp.nan_to_num(concat_leaves(grad)) - jnp.nan_to_num(concat_leaves(bad_grad)))
+        for grad, bad_grad in zip(vibe_grads, vibe_grads_bad)
+    ]
         
     loss_infos = loss_infos.add_plain_info("reconstruction_grad_norm", grad_norms[0])
     loss_infos = loss_infos.add_plain_info("forward_grad_norm", grad_norms[1])
     loss_infos = loss_infos.add_plain_info("smoothness_grad_norm", grad_norms[2])
     loss_infos = loss_infos.add_plain_info("dispersion_grad_norm", grad_norms[3])
     loss_infos = loss_infos.add_plain_info("condensation_grad_norm", grad_norms[4])
+        
+    loss_infos = loss_infos.add_plain_info("reconstruction_grad_diff_norm", grad_diff_norms[0])
+    loss_infos = loss_infos.add_plain_info("forward_grad_diff_norm", grad_diff_norms[1])
+    loss_infos = loss_infos.add_plain_info("smoothness_grad_diff_norm", grad_diff_norms[2])
+    loss_infos = loss_infos.add_plain_info("dispersion_grad_diff_norm", grad_diff_norms[3])
+    loss_infos = loss_infos.add_plain_info("condensation_grad_diff_norm", grad_diff_norms[4])
     
-    vibe_grad = jax.tree_map(lambda *x: jnp.sum(jnp.stack(x), axis=0), *vibe_grads)
+    vibe_grad = jax.tree_map(lambda *x: jnp.sum(jnp.stack(x), axis=0), *(vibe_grads[:3]))
 
     total_grad = concat_leaves(vibe_grad)
     total_grad = jnp.nan_to_num(total_grad)
