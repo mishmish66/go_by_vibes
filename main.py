@@ -50,7 +50,7 @@ from contextlib import redirect_stdout
 
 import wandb
 
-seed = 0
+seed = 1
 
 # Generate random key
 key = jax.random.PRNGKey(seed)
@@ -103,8 +103,8 @@ vibe_config = TrainConfig.init(
     reconstruction_weight=1.0,
     forward_weight=1.0,
     smoothness_weight=0.1,
-    condensation_weight=1e-4,
-    dispersion_weight=1e-4,
+    condensation_weight=0.0,
+    dispersion_weight=0.0,
     forward_gate_sharpness=1,
     smoothness_gate_sharpness=1,
     dispersion_gate_sharpness=10,
@@ -124,7 +124,7 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    mode="disabled",
+    # mode="disabled",
 )
 
 
