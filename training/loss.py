@@ -213,31 +213,31 @@ def composed_whole_traj_losses(
     result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
     result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
 
-    result_infos = result_infos.add_plain_info(
-        "latent_state_var_logs", jnp.log(latent_state_variances)
-    )
-    result_infos = result_infos.add_plain_info(
-        "latent_state_mean_stdev_log", latent_state_mean_stdev_log
-    )
-    result_infos = result_infos.add_plain_info(
-        "latent_action_var_logs", jnp.log(latent_action_variances)
-    )
-    result_infos = result_infos.add_plain_info(
-        "latent_action_mean_stdev_log", latent_action_mean_stdev_log
-    )
+    # result_infos = result_infos.add_plain_info(
+    #     "latent_state_var_logs", jnp.log(latent_state_variances)
+    # )
+    # result_infos = result_infos.add_plain_info(
+    #     "latent_state_mean_stdev_log", latent_state_mean_stdev_log
+    # )
+    # result_infos = result_infos.add_plain_info(
+    #     "latent_action_var_logs", jnp.log(latent_action_variances)
+    # )
+    # result_infos = result_infos.add_plain_info(
+    #     "latent_action_mean_stdev_log", latent_action_mean_stdev_log
+    # )
 
-    result_infos = result_infos.add_plain_info(
-        "reconstructed_state_var_logs", jnp.log(reconstructed_state_vars)
-    )
-    result_infos = result_infos.add_plain_info(
-        "reconstructed_state_mean_stdev_log", reconstructed_state_mean_stdev_log
-    )
-    result_infos = result_infos.add_plain_info(
-        "reconstructed_action_var_logs", jnp.log(reconstructed_action_vars)
-    )
-    result_infos = result_infos.add_plain_info(
-        "reconstructed_action_mean_stdev_log", reconstructed_action_mean_stdev_log
-    )
+    # result_infos = result_infos.add_plain_info(
+    #     "reconstructed_state_var_logs", jnp.log(reconstructed_state_vars)
+    # )
+    # result_infos = result_infos.add_plain_info(
+    #     "reconstructed_state_mean_stdev_log", reconstructed_state_mean_stdev_log
+    # )
+    # result_infos = result_infos.add_plain_info(
+    #     "reconstructed_action_var_logs", jnp.log(reconstructed_action_vars)
+    # )
+    # result_infos = result_infos.add_plain_info(
+    #     "reconstructed_action_mean_stdev_log", reconstructed_action_mean_stdev_log
+    # )
 
     return (
         Losses.init(
@@ -326,11 +326,11 @@ def composed_random_index_losses(
     state_prime_diff_mags = jnp.linalg.norm(state_prime_diffs, axis=-1)
     state_prime_diff_mag_logs = jnp.log(state_prime_diff_mags)
 
-    result_infos = result_infos.add_masked_info(
-        "state_prime_diff_mag_logs",
-        state_prime_diff_mag_logs,
-        inferred_next_state_mask,
-    )
+    # result_infos = result_infos.add_masked_info(
+    #     "state_prime_diff_mag_logs",
+    #     state_prime_diff_mag_logs,
+    #     inferred_next_state_mask,
+    # )
 
     # Evaluate the smoothness loss
     # First we resample the indexed state
@@ -453,18 +453,18 @@ class Losses:
             self.reconstruction_loss * train_config.reconstruction_weight
         )
         scaled_forward_loss = (
-            self.forward_loss * train_config.forward_weight * forward_gate
+            self.forward_loss * train_config.forward_weight #* forward_gate
         )
         scaled_smoothness_loss = (
-            self.smoothness_loss * train_config.smoothness_weight * smoothness_gate
+            self.smoothness_loss * train_config.smoothness_weight # * smoothness_gate
         )
         scaled_dispersion_loss = (
-            self.dispersion_loss * train_config.dispersion_weight * dispersion_gate
+            self.dispersion_loss * train_config.dispersion_weight # * dispersion_gate
         )
         scaled_condensation_loss = (
             self.condensation_loss
             * train_config.condensation_weight
-            * condensation_gate
+            #* condensation_gate
         )
 
         total_loss = (
