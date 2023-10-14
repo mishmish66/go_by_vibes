@@ -72,7 +72,7 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 ### Set up RL stuff
 
 learning_rate = float(1e-4)
-every_k = 1
+every_k = 2
 
 env_cls = Finger
 
