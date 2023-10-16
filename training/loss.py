@@ -107,7 +107,7 @@ def loss_condense(
     latent_actions,
 ):
     diffs = latent_actions[None, ...] - latent_actions[:, None, ...]
-    diff_mags = jnp.linalg.norm(diffs, axis=-1)
+    diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
 
     return jnp.mean(diff_mags)
 
