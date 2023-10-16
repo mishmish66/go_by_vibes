@@ -158,7 +158,7 @@ def train_step(
     loss_infos = loss_infos.add_plain_info("dispersion_grad_diff_norm", grad_diff_norms[3])
     loss_infos = loss_infos.add_plain_info("condensation_grad_diff_norm", grad_diff_norms[4])
     
-    vibe_grad = jax.tree_map(lambda *x: jnp.sum(jnp.stack(x), axis=0), *(vibe_grads[:3]))
+    vibe_grad = jax.tree_map(lambda *x: jnp.sum(jnp.stack(x), axis=0), *vibe_grads)
 
     total_grad = concat_leaves(vibe_grad)
     total_grad = jnp.nan_to_num(total_grad)
