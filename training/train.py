@@ -90,8 +90,8 @@ def train_step(
         whole_traj_infos = process_infos(infos_per_traj_per_gauss_sample)
 
         infos = Infos.merge(random_i_infos, whole_traj_infos)
-        
-        scaled_gated_losses, loss_infos  = losses.scale_gate_info(train_config)
+
+        scaled_gated_losses, loss_infos = losses.scale_gate_info(train_config)
 
         infos = Infos.merge(infos, loss_infos)
 
@@ -109,20 +109,24 @@ def train_step(
             return jnp.ravel(tree)
         else:
             jnp.array([])
-            
+
     grad_norms = [
         jnp.linalg.norm(jnp.nan_to_num(concat_leaves(grad))) for grad in vibe_grads
     ]
-        
+
     loss_infos = loss_infos.add_plain_info("reconstruction_grad_norm", grad_norms[0])
     loss_infos = loss_infos.add_plain_info("forward_grad_norm", grad_norms[1])
     loss_infos = loss_infos.add_plain_info("smoothness_grad_norm", grad_norms[2])
     loss_infos = loss_infos.add_plain_info("dispersion_grad_norm", grad_norms[3])
     loss_infos = loss_infos.add_plain_info("condensation_grad_norm", grad_norms[4])
-    
+
     vibe_grad = jax.tree_map(lambda *x: jnp.sum(jnp.stack(x), axis=0), *vibe_grads)
 
     total_grad = concat_leaves(vibe_grad)
+
+    grad_nan_portion = jnp.mean(jnp.isnan(total_grad))
+    loss_infos = loss_infos.add_plain_info("grad nan portion", grad_nan_portion)
+
     total_grad = jnp.nan_to_num(total_grad)
     total_grad_norm = jnp.linalg.norm(total_grad)
 
