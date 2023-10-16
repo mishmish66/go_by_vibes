@@ -131,6 +131,10 @@ def train_step(
         jnp.linalg.norm(jnp.nan_to_num(concat_leaves(grad))) for grad in vibe_grads
     ]
     
+    bad_grad_norms = [
+        jnp.linalg.norm(jnp.nan_to_num(concat_leaves(grad))) for grad in vibe_grads_bad
+    ]
+    
     grad_diff_norms = [
         jnp.linalg.norm(jnp.nan_to_num(concat_leaves(grad)) - jnp.nan_to_num(concat_leaves(bad_grad)))
         for grad, bad_grad in zip(vibe_grads, vibe_grads_bad)
@@ -141,6 +145,12 @@ def train_step(
     loss_infos = loss_infos.add_plain_info("smoothness_grad_norm", grad_norms[2])
     loss_infos = loss_infos.add_plain_info("dispersion_grad_norm", grad_norms[3])
     loss_infos = loss_infos.add_plain_info("condensation_grad_norm", grad_norms[4])
+        
+    loss_infos = loss_infos.add_plain_info("bad_reconstruction_grad_norm", bad_grad_norms[0])
+    loss_infos = loss_infos.add_plain_info("bad_forward_grad_norm", bad_grad_norms[1])
+    loss_infos = loss_infos.add_plain_info("bad_smoothness_grad_norm", bad_grad_norms[2])
+    loss_infos = loss_infos.add_plain_info("bad_dispersion_grad_norm", bad_grad_norms[3])
+    loss_infos = loss_infos.add_plain_info("bad_condensation_grad_norm", bad_grad_norms[4])
         
     loss_infos = loss_infos.add_plain_info("reconstruction_grad_diff_norm", grad_diff_norms[0])
     loss_infos = loss_infos.add_plain_info("forward_grad_diff_norm", grad_diff_norms[1])
