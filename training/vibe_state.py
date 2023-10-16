@@ -103,10 +103,10 @@ class TrainConfig:
         smoothness_gate_sharpness=1.0,
         dispersion_gate_sharpness=1.0,
         condensation_gate_sharpness=1.0,
-        forward_gate_center=-10.0,
-        smoothness_gate_center=-10.0,
-        dispersion_gate_center=-10.0,
-        condensation_gate_center=-10.0,
+        forward_gate_center=-3.0,
+        smoothness_gate_center=-5.0,
+        dispersion_gate_center=-5.0,
+        condensation_gate_center=-5.0,
     ):
         return cls(
             learning_rate=learning_rate,

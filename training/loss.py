@@ -88,7 +88,7 @@ def loss_smoothness(
     neighborhood_result_latent_states,
 ):
     diffs = original_latent_states - neighborhood_result_latent_states
-    diff_mags = jnp.linalg.norm(diffs, axis=-1)
+    diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
     neighborhood_violation = jnp.maximum(diff_mags - 1.0, 0)
 
     return jnp.mean(neighborhood_violation)
@@ -98,7 +98,7 @@ def loss_disperse(
     latent_states,
 ):
     diffs = latent_states[None, ...] - latent_states[:, None, ...]
-    diff_mags = jnp.linalg.norm(diffs, axis=-1)
+    diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
 
     return -jnp.mean(diff_mags)
 
