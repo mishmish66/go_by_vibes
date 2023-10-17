@@ -428,43 +428,43 @@ class Losses:
     def scale_gate_info(self, train_config: TrainConfig):
         infos = Infos.init()
 
-        forward_gate = make_gate_value(
-            self.reconstruction_loss,
-            train_config.forward_gate_sharpness,
-            train_config.forward_gate_center,
-        )
-        smoothness_gate = make_gate_value(
-            self.reconstruction_loss,
-            train_config.smoothness_gate_sharpness,
-            train_config.smoothness_gate_center,
-        )
-        dispersion_gate = make_gate_value(
-            self.reconstruction_loss,
-            train_config.dispersion_gate_sharpness,
-            train_config.dispersion_gate_center,
-        )
-        condensation_gate = make_gate_value(
-            self.reconstruction_loss,
-            train_config.condensation_gate_sharpness,
-            train_config.condensation_gate_center,
-        )
+        # forward_gate = make_gate_value(
+        #     self.reconstruction_loss,
+        #     train_config.forward_gate_sharpness,
+        #     train_config.forward_gate_center,
+        # )
+        # smoothness_gate = make_gate_value(
+        #     self.reconstruction_loss,
+        #     train_config.smoothness_gate_sharpness,
+        #     train_config.smoothness_gate_center,
+        # )
+        # dispersion_gate = make_gate_value(
+        #     self.reconstruction_loss,
+        #     train_config.dispersion_gate_sharpness,
+        #     train_config.dispersion_gate_center,
+        # )
+        # condensation_gate = make_gate_value(
+        #     self.reconstruction_loss,
+        #     train_config.condensation_gate_sharpness,
+        #     train_config.condensation_gate_center,
+        # )
 
         scaled_reconstruction_loss = (
             self.reconstruction_loss * train_config.reconstruction_weight
         )
         scaled_forward_loss = (
-            self.forward_loss * train_config.forward_weight * forward_gate
+            self.forward_loss * train_config.forward_weight # * forward_gate
         )
         scaled_smoothness_loss = (
-            self.smoothness_loss * train_config.smoothness_weight * smoothness_gate
+            self.smoothness_loss * train_config.smoothness_weight # * smoothness_gate
         )
         scaled_dispersion_loss = (
-            self.dispersion_loss * train_config.dispersion_weight * dispersion_gate
+            self.dispersion_loss * train_config.dispersion_weight # * dispersion_gate
         )
         scaled_condensation_loss = (
             self.condensation_loss
             * train_config.condensation_weight
-            * condensation_gate
+            # * condensation_gate
         )
 
         total_loss = (
@@ -483,10 +483,10 @@ class Losses:
         infos = infos.add_loss_info("dispersion_loss", scaled_dispersion_loss)
         infos = infos.add_loss_info("condensation_loss", scaled_condensation_loss)
 
-        infos = infos.add_plain_info("forward_gate", forward_gate)
-        infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
-        infos = infos.add_plain_info("dispersion_gate", dispersion_gate)
-        infos = infos.add_plain_info("condensation_gate", condensation_gate)
+        # infos = infos.add_plain_info("forward_gate", forward_gate)
+        # infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
+        # infos = infos.add_plain_info("dispersion_gate", dispersion_gate)
+        # infos = infos.add_plain_info("condensation_gate", condensation_gate)
         
         result_loss = Losses.init(
             reconstruction_loss=scaled_reconstruction_loss,
