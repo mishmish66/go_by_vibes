@@ -98,8 +98,9 @@ def loss_disperse(
 ):
     diffs = latent_states[None, ...] - latent_states[:, None, ...]
     diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
+    diff_mag_logs = jnp.log(diff_mags + 1e-6)
 
-    return -jnp.mean(diff_mags)
+    return -jnp.mean(diff_mag_logs)
 
 
 def loss_condense(
