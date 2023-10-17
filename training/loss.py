@@ -8,7 +8,6 @@ from jax.tree_util import register_pytree_node_class
 
 from einops import einsum, rearrange
 
-from .rollout import collect_rollout
 from .nets import (
     encoded_state_dim,
     encoded_action_dim,

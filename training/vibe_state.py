@@ -29,7 +29,7 @@ from .nets import (
     ActionDecoder,
 )
 
-from .rollout import collect_rollout
+# from .rollout import collect_rollout
 
 from dataclasses import dataclass
 

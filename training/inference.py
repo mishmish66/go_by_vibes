@@ -218,7 +218,7 @@ def infer_states(
     latent_actions,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
-    first_unknown_action_i=None,
+    first_unknown_action_i=0,
 ):
     latent_state_prime_gaussians = get_latent_state_prime_gaussians(
         latent_start_state,

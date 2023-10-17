@@ -130,7 +130,7 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    # mode="disabled",
+    mode="disabled",
 )
 
 
@@ -156,7 +156,7 @@ def do_rollout(carry_pack, _):
     
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 128)
-    eval_results = jax.vmap(evaluate_actor, in_axes=((None,) * 7 + (0,)))(
+    eval_results = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
         rngs,
         start_state,
         env_cls,
@@ -169,6 +169,7 @@ def do_rollout(carry_pack, _):
     infos = infos.add_plain_info("eval_result", eval_result)
     
     infos.dump_to_wandb()
+    infos.dump_to_console()
 
     env_cls.send_wandb_video(rollout_result[0][0], env_config)
 
