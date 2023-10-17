@@ -16,13 +16,15 @@ import optax
 
 import jax.experimental.host_callback
 
+from training.infos import Infos
+
 import shutil
 
 from einops import einops, einsum
 import matplotlib.pyplot as plt
 
 from embeds import EmbeddingLayer
-from training.rollout import collect_rollout
+from training.rollout import collect_rollout, evaluate_actor
 from training.vibe_state import (
     VibeState,
     TrainConfig,
@@ -151,6 +153,22 @@ def do_rollout(carry_pack, _):
         vibe_config,
         rngs,
     )
+    
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, 128)
+    eval_results = jax.vmap(evaluate_actor, in_axes=((None,) * 7 + (0,)))(
+        rngs,
+        start_state,
+        env_cls,
+        vibe_state,
+        vibe_config,
+    )
+    eval_result = jnp.mean(eval_results)
+    
+    infos = Infos.init()
+    infos = infos.add_plain_info("eval_result", eval_result)
+    
+    infos.dump_to_wandb()
 
     env_cls.send_wandb_video(rollout_result[0][0], env_config)
 

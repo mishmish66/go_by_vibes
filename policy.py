@@ -27,6 +27,7 @@ def random_action(key, action_bounds):
 def random_policy(
     key,
     start_state,
+    action_i,
     vibe_state,
     vibe_config,
 ):
