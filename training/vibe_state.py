@@ -72,7 +72,7 @@ class TrainConfig:
     dispersion_gate_sharpness: any
     condensation_gate_sharpness: any
 
-    reconstruction_gate_sharpness: any
+    reconstruction_gate_center: any
     forward_gate_center: any
     smoothness_gate_center: any
     dispersion_gate_center: any
@@ -229,7 +229,7 @@ class TrainConfig:
             smoothness_weight=aux["smoothness_weight"],
             dispersion_weight=aux["dispersion_weight"],
             condensation_weight=aux["condensation_weight"],
-            reconstruction_gate_sharpness=aux["reconstruction_gate_sharpness"]
+            reconstruction_gate_sharpness=aux["reconstruction_gate_sharpness"],
             forward_gate_sharpness=aux["forward_gate_sharpness"],
             smoothness_gate_sharpness=aux["smoothness_gate_sharpness"],
             dispersion_gate_sharpness=aux["dispersion_gate_sharpness"],
