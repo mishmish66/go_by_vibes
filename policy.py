@@ -50,7 +50,7 @@ def max_dist_policy(
     vibe_config,
     window=64,
     guess_count=128,
-    refine_steps=20,
+    refine_steps=256,
 ):
     """This policy shoots 128 random actions at the environment, refines them,
     and returns the one with the highest reward."""

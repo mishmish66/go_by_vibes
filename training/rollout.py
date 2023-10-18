@@ -60,8 +60,20 @@ class PresetActor:
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
 
-    def __call__(self, rng, state, i, vibe_state, vibe_config):
-        return self.actions[i]
+    def __call__(self, key, state, i, vibe_state, vibe_config):
+        # encode the state
+        rng, key = jax.random.split(key)
+        latent_state = encode_state(
+            rng, state, vibe_state, vibe_config
+        )
+        
+        #decode the action
+        latent_action = self.actions[i]
+        rng, key = jax.random.split(key)
+        action = decode_action(
+            rng, latent_action, latent_state, vibe_state, vibe_config
+        )
+        return action
 
 
 def evaluate_actor(
@@ -71,7 +83,7 @@ def evaluate_actor(
     vibe_state: VibeState,
     vibe_config: TrainConfig,
     target_q=1.0,
-    update_steps=20,
+    update_steps=256,
 ):
     horizon = vibe_config.rollout_length
     
@@ -186,7 +198,7 @@ def evaluate_actor(
         vibe_config,
     )
     
-    actor = PresetActor(action_space_plan)
+    actor = PresetActor(result_latent_action_plan)
     
     rng, key = jax.random.split(key)
     result_states, result_actions = collect_rollout(
