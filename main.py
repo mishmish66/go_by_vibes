@@ -115,7 +115,6 @@ vibe_config = TrainConfig.init(
     smoothness_gate_sharpness=1,
     dispersion_gate_sharpness=1,
     condensation_gate_sharpness=1,
-    reconstruction_gate_center=-5,
     forward_gate_center=-2,
     smoothness_gate_center=-2,
     dispersion_gate_center=-2,
