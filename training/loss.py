@@ -428,10 +428,16 @@ class Losses:
     def scale_gate_info(self, train_config: TrainConfig):
         infos = Infos.init()
 
-        reconstruction_gate = 1 - make_gate_value(
+        inverse_reconstruction_gate = 1 - make_gate_value(
             self.reconstruction_loss,
-            train_config.reconstruction_gate_sharpness,
-            train_config.reconstruction_gate_center,
+            train_config.inverse_reconstruction_gate_sharpness,
+            train_config.inverse_reconstruction_gate_center,
+        )
+        
+        inverse_forward_gate = 1 - make_gate_value(
+            self.forward_loss,
+            train_config.inverse_forward_gate_sharpness,
+            train_config.inverse_forward_gate_center,
         )
 
         forward_gate = make_gate_value(
@@ -466,9 +472,9 @@ class Losses:
         )
 
         scaled_gated_reconstruction_loss = (
-            scaled_reconstruction_loss * reconstruction_gate
+            scaled_reconstruction_loss * inverse_reconstruction_gate
         )
-        scaled_gated_forward_loss = scaled_forward_loss * forward_gate
+        scaled_gated_forward_loss = scaled_forward_loss * forward_gate * inverse_forward_gate
         scaled_gated_smoothness_loss = scaled_smoothness_loss * smoothness_gate
         scaled_gated_dispersion_loss = scaled_dispersion_loss * dispersion_gate
         scaled_gated_condensation_loss = scaled_condensation_loss * condensation_gate
@@ -489,7 +495,8 @@ class Losses:
         infos = infos.add_loss_info("dispersion_loss", scaled_dispersion_loss)
         infos = infos.add_loss_info("condensation_loss", scaled_condensation_loss)
 
-        infos = infos.add_plain_info("reconstruction_gate", reconstruction_gate)
+        infos = infos.add_plain_info("inverse_reconstruction_gate", inverse_reconstruction_gate)
+        infos = infos.add_plain_info("inverse_forward_gate", inverse_forward_gate)
         infos = infos.add_plain_info("forward_gate", forward_gate)
         infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
         infos = infos.add_plain_info("dispersion_gate", dispersion_gate)

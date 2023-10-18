@@ -66,13 +66,17 @@ class TrainConfig:
     dispersion_weight: any
     condensation_weight: any
 
-    reconstruction_gate_sharpness: any
+    inverse_reconstruction_gate_sharpness: any
+    inverse_forward_gate_sharpness: any
+
+    inverse_reconstruction_gate_center: any
+    inverse_forward_gate_center: any
+
     forward_gate_sharpness: any
     smoothness_gate_sharpness: any
     dispersion_gate_sharpness: any
     condensation_gate_sharpness: any
 
-    reconstruction_gate_center: any
     forward_gate_center: any
     smoothness_gate_center: any
     dispersion_gate_center: any
@@ -101,12 +105,14 @@ class TrainConfig:
         smoothness_weight=1.0,
         dispersion_weight=1.0,
         condensation_weight=1.0,
-        reconstruction_gate_sharpness=1.0,
+        inverse_reconstruction_gate_sharpness=1.0,
+        inverse_forward_gate_sharpness=1.0,
+        inverse_reconstruction_gate_center=-5.0,
+        inverse_forward_gate_center=-5.0,
         forward_gate_sharpness=1.0,
         smoothness_gate_sharpness=1.0,
         dispersion_gate_sharpness=1.0,
         condensation_gate_sharpness=1.0,
-        reconstruction_gate_center=-5.0,
         forward_gate_center=-3.0,
         smoothness_gate_center=-5.0,
         dispersion_gate_center=-5.0,
@@ -133,12 +139,14 @@ class TrainConfig:
             smoothness_weight=smoothness_weight,
             dispersion_weight=dispersion_weight,
             condensation_weight=condensation_weight,
-            reconstruction_gate_sharpness=reconstruction_gate_sharpness,
+            inverse_reconstruction_gate_sharpness=inverse_reconstruction_gate_sharpness,
+            inverse_forward_gate_sharpness=inverse_forward_gate_sharpness,
+            inverse_reconstruction_gate_center=inverse_reconstruction_gate_center,
+            inverse_forward_gate_center=inverse_forward_gate_center,
             forward_gate_sharpness=forward_gate_sharpness,
             smoothness_gate_sharpness=smoothness_gate_sharpness,
             dispersion_gate_sharpness=dispersion_gate_sharpness,
             condensation_gate_sharpness=condensation_gate_sharpness,
-            reconstruction_gate_center=reconstruction_gate_center,
             forward_gate_center=forward_gate_center,
             smoothness_gate_center=smoothness_gate_center,
             dispersion_gate_center=dispersion_gate_center,
@@ -160,7 +168,10 @@ class TrainConfig:
             "smoothness_weight": self.smoothness_weight,
             "dispersion_weight": self.dispersion_weight,
             "condensation_weight": self.condensation_weight,
-            "reconstruction_gate_sharpness": self.reconstruction_gate_sharpness,
+            "inverse_reconstruction_gate_sharpness": self.reconstruction_gate_sharpness,
+            "inverse_forward_gate_sharpness": self.inverse_forward_gate_sharpness,
+            "inverse_reconstruction_gate_center": self.inverse_reconstruction_gate_center,
+            "inverse_forward_gate_center": self.inverse_forward_gate_center,
             "forward_gate_sharpness": self.forward_gate_sharpness,
             "smoothness_gate_sharpness": self.smoothness_gate_sharpness,
             "dispersion_gate_sharpness": self.dispersion_gate_sharpness,
@@ -194,7 +205,10 @@ class TrainConfig:
             "smoothness_weight": self.smoothness_weight,
             "dispersion_weight": self.dispersion_weight,
             "condensation_weight": self.condensation_weight,
-            "reconstruction_gate_sharpness": self.reconstruction_gate_sharpness,
+            "inverse_reconstruction_gate_sharpness": self.inverse_reconstruction_gate_sharpness,
+            "inverse_forward_gate_sharpness": self.inverse_forward_gate_sharpness,
+            "inverse_reconstruction_gate_center": self.inverse_reconstruction_gate_center,
+            "inverse_forward_gate_center": self.inverse_forward_gate_center,
             "forward_gate_sharpness": self.forward_gate_sharpness,
             "smoothness_gate_sharpness": self.smoothness_gate_sharpness,
             "dispersion_gate_sharpness": self.dispersion_gate_sharpness,
@@ -229,7 +243,10 @@ class TrainConfig:
             smoothness_weight=aux["smoothness_weight"],
             dispersion_weight=aux["dispersion_weight"],
             condensation_weight=aux["condensation_weight"],
-            reconstruction_gate_sharpness=aux["reconstruction_gate_sharpness"],
+            inverse_reconstruction_gate_sharpness=aux["inverse_reconstruction_gate_sharpness"],
+            inverse_forward_gate_sharpness=aux["inverse_forward_gate_sharpness"],
+            inverse_reconstruction_gate_center=aux["inverse_reconstruction_gate_center"],
+            inverse_forward_gate_center=aux["inverse_forward_gate_center"],
             forward_gate_sharpness=aux["forward_gate_sharpness"],
             smoothness_gate_sharpness=aux["smoothness_gate_sharpness"],
             dispersion_gate_sharpness=aux["dispersion_gate_sharpness"],
