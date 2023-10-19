@@ -174,7 +174,10 @@ class TemporalEncoder(nn.Module):
         sins = jnp.sin(operands[0::2])
         cosines = jnp.cos(operands[1::2])
 
-        freq_result = rearrange([sins, cosines], "f e -> (e f)")
+        # interleave
+        freq_result = jnp.empty_like(operands)
+        freq_result = freq_result.at[0::2].set(sins)
+        freq_result = freq_result.at[1::2].set(cosines)
 
         return x + freq_result
 
