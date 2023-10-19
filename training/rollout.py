@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 from policy import random_policy
 
+from .infos import Infos
+
 
 def collect_rollout(
     start_state,
@@ -63,11 +65,9 @@ class PresetActor:
     def __call__(self, key, state, i, vibe_state, vibe_config):
         # encode the state
         rng, key = jax.random.split(key)
-        latent_state = encode_state(
-            rng, state, vibe_state, vibe_config
-        )
-        
-        #decode the action
+        latent_state = encode_state(rng, state, vibe_state, vibe_config)
+
+        # decode the action
         latent_action = self.actions[i]
         rng, key = jax.random.split(key)
         action = decode_action(
@@ -86,12 +86,10 @@ def evaluate_actor(
     update_steps=256,
 ):
     horizon = vibe_config.rollout_length
-    
+
     rng, key = jax.random.split(key)
-    latent_start_state = encode_state(
-        key, start_state, vibe_state, vibe_config
-    )
-    
+    latent_start_state = encode_state(key, start_state, vibe_state, vibe_config)
+
     def cost_func(state, action):
         state_cost = jnp.abs(state[2] - target_q)
         action_cost = 0.01 * jnp.linalg.norm(action, ord=1)
@@ -129,7 +127,7 @@ def evaluate_actor(
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, horizon)
     random_actions = jax.vmap(vibe_config.env_config.random_action)(rngs)
-    
+
     loc_random_policy = jax.tree_util.Partial(random_policy)
     random_states, random_actions = collect_rollout(
         start_state,
@@ -139,7 +137,7 @@ def evaluate_actor(
         vibe_config,
         rng,
     )
-    
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, random_states.shape[0])
     latent_random_states = jax.vmap(encode_state, (0, 0, None, None))(
@@ -157,14 +155,14 @@ def evaluate_actor(
     def scanf(carry, _):
         latent_actions, key, i = carry
 
-        grad = jax.grad(latent_action_plan_cost_func, 1)(
+        cost, grad = jax.value_and_grad(latent_action_plan_cost_func, 1)(
             key,
             latent_actions,
         )
 
         latent_actions = latent_actions - stepsize * grad
 
-        return (latent_actions, key, i + 1), None
+        return (latent_actions, key, i + 1), cost
 
     rng, key = jax.random.split(key)
     init = (
@@ -174,32 +172,15 @@ def evaluate_actor(
     )
 
     # Now scan
-    (result_latent_action_plan, _, _), _ = jax.lax.scan(
+    (result_latent_action_plan, _, _), costs = jax.lax.scan(
         scanf,
         init,
         None,
         update_steps,
     )
-    
-    latent_states_prime = infer_states(
-        rng, latent_start_state, result_latent_action_plan, vibe_state, vibe_config
-    )
-    latent_states = jnp.concatenate(
-        [latent_start_state[None], latent_states_prime], axis=0
-    )[:-1]
-    
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, result_latent_action_plan.shape[0])
-    action_space_plan = jax.vmap(decode_action, (0, 0, 0, None, None))(
-        rngs,
-        result_latent_action_plan,
-        latent_states,
-        vibe_state,
-        vibe_config,
-    )
-    
+
     actor = PresetActor(result_latent_action_plan)
-    
+
     rng, key = jax.random.split(key)
     result_states, result_actions = collect_rollout(
         start_state,
@@ -209,7 +190,19 @@ def evaluate_actor(
         vibe_config,
         rng,
     )
-    
+
     final_cost = traj_cost_func(result_states, result_actions)
-    
-    return final_cost
+
+    info = Infos.init()
+    info = info.add_plain_info("final_cost", final_cost)
+    info = info.add_plain_info("starting expected cost", costs[0])
+    info = info.add_plain_info("mid expected cost", costs[costs.shape[0] // 2])
+
+    min_idx = jnp.argmin(costs)
+    max_idx = jnp.argmax(costs)
+    info = info.add_plain_info("min expected cost index", min_idx)
+    info = info.add_plain_info("max expected cost index", max_idx)
+
+    info = info.add_plain_info("final expected cost", costs[-1])
+
+    return final_cost, info
