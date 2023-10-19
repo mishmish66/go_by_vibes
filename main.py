@@ -86,7 +86,15 @@ vibe_config = TrainConfig.init(
         optax.chain(
             optax.zero_nans(),
             optax.clip_by_global_norm(200.0),
-            optax.lion(learning_rate=learning_rate),
+            optax.lion(
+                learning_rate=optax.cosine_onecycle_schedule(
+                    4e+3,
+                    1e-1,
+                    pct_start=0.3,
+                    div_factor=10.0,
+                    final_div_factor=10000.0,
+                )
+            ),
         ),
         every_k_schedule=every_k,
     ),
@@ -158,7 +166,7 @@ def do_rollout(carry_pack, _):
         vibe_config,
         rngs,
     )
-    
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 128)
     eval_results = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
@@ -169,10 +177,10 @@ def do_rollout(carry_pack, _):
         vibe_config,
     )
     eval_result = jnp.mean(eval_results)
-    
+
     infos = Infos.init()
     infos = infos.add_plain_info("eval_result", eval_result)
-    
+
     infos.dump_to_wandb()
     infos.dump_to_console()
 
