@@ -90,7 +90,7 @@ def loss_smoothness(
     diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
     neighborhood_violation = jnp.maximum(diff_mags - 1.0, 0)
 
-    return jnp.mean(jnp.log(neighborhood_violation))
+    return jnp.mean(jnp.log(neighborhood_violation + 1e-6))
 
 
 def loss_disperse(
