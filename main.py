@@ -169,7 +169,7 @@ def do_rollout(carry_pack, _):
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 128)
-    eval_results = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
+    eval_results, infos = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
         rngs,
         start_state,
         env_cls,
@@ -178,8 +178,7 @@ def do_rollout(carry_pack, _):
     )
     eval_result = jnp.mean(eval_results)
 
-    infos = Infos.init()
-    infos = infos.add_plain_info("eval_result", eval_result)
+    infos = infos.condense()
 
     infos.dump_to_wandb()
     infos.dump_to_console()

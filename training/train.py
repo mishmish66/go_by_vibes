@@ -70,26 +70,12 @@ def train_step(
 
         losses = Losses.merge(random_index_losses, whole_traj_losses)
 
-        def process_infos(infos):
-            return Infos.init(
-                loss_infos=jax.tree_map(
-                    lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
-                    infos.loss_infos,
-                ),
-                plain_infos=jax.tree_map(
-                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
-                    infos.plain_infos,
-                ),
-                masked_infos=jax.tree_map(
-                    lambda x: rearrange(x, "t n ... -> (t n) ..."),
-                    infos.masked_infos,
-                ),
-            )
+        infos_per_traj_per_comp = Infos.merge(
+            infos_per_traj_per_random_index,
+            infos_per_traj_per_gauss_sample,
+        )
 
-        random_i_infos = process_infos(infos_per_traj_per_random_index)
-        whole_traj_infos = process_infos(infos_per_traj_per_gauss_sample)
-
-        infos = Infos.merge(random_i_infos, whole_traj_infos)
+        infos = infos_per_traj_per_comp.condense().condense()
 
         scaled_gated_losses, loss_infos = losses.scale_gate_info(train_config)
 

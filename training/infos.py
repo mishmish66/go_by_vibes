@@ -2,10 +2,14 @@ from dataclasses import dataclass
 
 import jax
 
+from jax import numpy as jnp
+
 from jax.tree_util import register_pytree_node_class
 from jax.experimental.host_callback import id_tap
 
 import wandb
+
+from einops import rearrange
 
 
 @register_pytree_node_class
@@ -100,6 +104,27 @@ class Infos:
         }
 
         return result_dict
+
+    def condense(self, axis=0, method='mean'):
+        condenser = None
+        if method=='mean':
+            condenser = lambda x: jnp.mean(x, axis=axis)
+        if method=='unstack':
+            condenser = lambda x: rearrange(x, "a b ... -> (a b) ...")
+        return Infos.init(
+            loss_infos=jax.tree_map(
+                condenser,
+                self.loss_infos,
+            ),
+            plain_infos=jax.tree_map(
+                condenser,
+                self.plain_infos,
+            ),
+            masked_infos=jax.tree_map(
+                condenser,
+                self.masked_infos,
+            ),
+        )
 
     def host_dump_to_wandb(self):
         wandb.log(self.host_get_dict())
