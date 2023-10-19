@@ -100,6 +100,7 @@ vibe_config = TrainConfig.init(
     rollouts=1024,
     epochs=128,
     batch_size=256,
+    every_k=every_k,
     traj_per_rollout=1024,
     rollout_length=500,
     reconstruction_weight=1.0,
