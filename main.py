@@ -73,7 +73,7 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 
 ### Set up RL stuff
 
-learning_rate = float(1e-3)
+learning_rate = float(1e-4)
 every_k = 4
 
 env_cls = Finger
@@ -87,13 +87,7 @@ vibe_config = TrainConfig.init(
             optax.zero_nans(),
             optax.clip_by_global_norm(200.0),
             optax.lion(
-                learning_rate=optax.cosine_onecycle_schedule(
-                    5000,
-                    peak_value=learning_rate,
-                    pct_start=0,
-                    div_factor=1.0,
-                    final_div_factor=100.0,
-                )
+                learning_rate=learning_rate,
             ),
         ),
         every_k_schedule=every_k,
