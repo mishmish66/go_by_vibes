@@ -202,7 +202,7 @@ def evaluate_actor(
     max_idx = jnp.argmax(costs)
     info = info.add_plain_info("min expected cost index", min_idx)
     info = info.add_plain_info("max expected cost index", max_idx)
-
+    info = info.add_plain_info("min expected cost", costs[min_idx])
     info = info.add_plain_info("final expected cost", costs[-1])
 
     return final_cost, info

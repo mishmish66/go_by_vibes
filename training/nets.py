@@ -8,8 +8,8 @@ from flax import linen as nn
 
 from einops import einsum, rearrange
 
-encoded_state_dim = 16
-encoded_action_dim = 16
+encoded_state_dim = 8
+encoded_action_dim = 8
 
 
 class FreqLayer(nn.Module):
