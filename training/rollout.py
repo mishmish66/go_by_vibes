@@ -150,7 +150,7 @@ def evaluate_actor(
         rngs, random_actions, latent_random_states, vibe_state, vibe_config
     )
 
-    stepsize = 0.1
+    stepsize = 0.375
 
     def scanf(carry, _):
         latent_actions, key, i = carry
