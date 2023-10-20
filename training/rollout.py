@@ -91,7 +91,7 @@ def evaluate_actor(
     latent_start_state = encode_state(key, start_state, vibe_state, vibe_config)
 
     def cost_func(state, action):
-        state_cost = jnp.abs(state[2] - target_q)
+        state_cost = jnp.abs(state[0] - target_q)
         action_cost = 0.01 * jnp.linalg.norm(action, ord=1)
 
         return state_cost + action_cost

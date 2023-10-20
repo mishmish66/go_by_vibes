@@ -1,11 +1,11 @@
 <mujoco model="go1">
     <compiler angle="radian" meshdir="assets" autolimits="true" />
 
-    <option cone="elliptic" impratio="100" />
+    <!-- <option cone="elliptic" impratio="100" /> -->
 
     <default>
         <default class="go1">
-            <geom friction="0.6" margin="0.001" condim="1" />
+            <geom friction="0.6" margin="0.001" condim="3" />
             <joint axis="0 1 0" damping="2" armature="0.01" frictionloss="0.2" />
             <position kp="100" forcerange="-23.7 23.7" />
             <default class="abduction">
@@ -60,7 +60,7 @@
                 </default>
                 <default class="foot">
                     <geom type="sphere" size="0.023" pos="0 0 -0.213" priority="1"
-                        solimp="0.015 1 0.031" condim="6"
+                        solimp="0.015 1 0.031" condim="3"
                         friction="0.8 0.02 0.01" />
                 </default>
             </default>
@@ -77,13 +77,13 @@
     </asset>
 
     <worldbody>
-        <body name="wheel" pos="0.5 0 0.2">
+        <body name="wheel" pos="0.5 0 0.35">
             <joint name="wheel_axis" />
-            <geom type="cylinder" size="0.2 0.1" />
+            <geom type="capsule" size="0.2 0.1" />
             <inertial pos="0 0 0" mass="20.0" diaginertia="0.5 0.5 1.0" />
         </body>
         <light name="spotlight" mode="targetbodycom" target="FR_thigh" pos="0 -1 2" />
-        <body name="FR_thigh" pos="0 -0.08 0.25" euler="-1.5708 -2.3562 0">
+        <body name="FR_thigh" pos="0 -0.08 0.35" euler="-1.5708 -2.3562 0">
             <inertial pos="-0.00304722 0.019315 -0.0305004"
                 quat="0.65243 -0.0272313 0.0775126 0.753383" mass="1.009"
                 diaginertia="0.00478717 0.00460903 0.000709268" />

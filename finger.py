@@ -24,7 +24,6 @@ class Finger:
     def class_init(cls):
         cls.host_model = mujoco.MjModel.from_xml_path("assets/finger/scene.xml")
         cls.model = mjx.device_put(cls.host_model)
-        
         cls.renderer = mujoco.Renderer(cls.host_model, 512, 512)
 
     @classmethod
@@ -53,20 +52,23 @@ class Finger:
         
         return jnp.concatenate([next_qpos, next_qvel], dtype=jnp.float32)
 
+    # @classmethod
+    # def host_make_state(cls):
+    #     return np.concatenate([cls.data.qpos, cls.data.qvel], dtype=np.float32)
+    
     @classmethod
-    def host_get_home_state(cls):
-        mujoco.mj_resetData(cls.model, cls.data)
-
-        return cls.host_make_state()
-
-    @classmethod
-    def get_home_state(cls):
-        return mjx.reset_data
+    def make_state(cls, data):
+        return jnp.concatenate([data.qpos, data.qvel], dtype=jnp.float32)
+        
 
     @classmethod
-    def host_make_state(cls):
-        return np.concatenate([cls.data.qpos, cls.data.qvel], dtype=np.float32)
-
+    def init(cls):
+        data = mjx.make_data(cls.model)
+        
+        return cls.make_state(data)
+        
+        
+    
     @classmethod
     def get_config(cls):
         return EnvConfig(
@@ -79,15 +81,18 @@ class Finger:
 
     @classmethod
     def host_render_frame(cls, state):
-        cls.data.qpos[:] = state[: cls.model.nq]
-        cls.data.qvel[:] = state[cls.model.nq :]
-        cls.renderer.update_scene(cls.data)
+        host_data = mujoco.MjData(cls.host_model)
+        
+        host_data.qpos[:] = state[: cls.host_model.nq]
+        host_data.qvel[:] = state[cls.host_model.nq :]
+        
+        cls.renderer.update_scene(host_data)
         img = cls.renderer.render()
         return img
 
     @classmethod
     def send_wandb_video_for_id_tap(cls, tap_pack, _):
-        # return # I can't fix this function, not sure why it's broken
+        return # I can't fix this function, not sure why it's broken
         states, env_config = tap_pack
         fps = 24
         stride = int(1 / fps / env_config.dt)

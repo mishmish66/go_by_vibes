@@ -15,3 +15,4 @@ vibes_venv
 TEMPORARY_LOG.txt
 xla_log/*
 MUJOCO_LOG.TXT
+checkpoints/*

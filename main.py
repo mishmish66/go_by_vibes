@@ -39,6 +39,8 @@ from training.nets import (
     encoded_action_dim,
 )
 
+import orbax.checkpoint as ocp
+
 # from unitree_go1 import UnitreeGo1
 
 from training.train import train_step, dump_to_wandb
@@ -73,8 +75,18 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 
 ### Set up RL stuff
 
+checkpoint_dir = "checkpoints"
+
+# clear checkpoints
+if os.path.exists(checkpoint_dir):
+    shutil.rmtree(checkpoint_dir)
+
+os.makedirs(checkpoint_dir)
+
+checkpointer = ocp.PyTreeCheckpointer()
+
 learning_rate = float(2.5e-4)
-every_k = 4
+every_k = 8
 
 env_cls = Finger
 
@@ -106,7 +118,7 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=1024,
-    epochs=128,
+    epochs=16,
     batch_size=256,
     every_k=every_k,
     traj_per_rollout=1024,
@@ -135,7 +147,7 @@ vibe_state = VibeState.init(rng, vibe_config)
 
 policy = jax.tree_util.Partial(random_policy)
 
-start_state = env_cls.get_home_state()
+start_state = env_cls.init()
 
 rng, key = jax.random.split(key)
 rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
@@ -154,6 +166,15 @@ def dump_to_wandb_for_tap(tap_pack, _):
 
 def do_rollout(carry_pack, _):
     (key, rollout_i, vibe_state) = carry_pack
+
+    steps = vibe_config.epochs * vibe_config.traj_per_rollout / vibe_config.batch_size
+
+    checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_r{rollout_i}_s{steps}")
+
+    jax.experimental.host_callback.id_tap(
+        lambda vibe_state, _: checkpointer.save(checkpoint_path, vibe_state),
+        vibe_state,
+    )
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
