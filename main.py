@@ -74,7 +74,7 @@ qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
 ### Set up RL stuff
 
 learning_rate = float(2.5e-4)
-every_k = 8
+every_k = 4
 
 env_cls = Finger
 
@@ -178,7 +178,7 @@ def do_rollout(carry_pack, _):
     )
     eval_result = jnp.mean(eval_results)
 
-    infos = infos.condense()
+    # infos = infos.condense(method='unstack')
 
     infos.dump_to_wandb()
     infos.dump_to_console()
