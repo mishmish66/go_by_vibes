@@ -10,6 +10,7 @@ import numpy as np
 from dataclasses import dataclass
 
 import mujoco
+from mujoco import mjx
 
 from training.env_config import EnvConfig
 
@@ -21,16 +22,16 @@ import wandb
 class Finger:
     @classmethod
     def class_init(cls):
-        cls.model = mujoco.MjModel.from_xml_path("assets/finger/scene.xml")
-        cls.data = mujoco.MjData(cls.model)
-        cls.home_state = jnp.array(cls.host_get_home_state())
-        cls.renderer = mujoco.Renderer(cls.model, 512, 512)
+        cls.host_model = mujoco.MjModel.from_xml_path("assets/finger/scene.xml")
+        cls.model = mjx.device_put(cls.host_model)
+        
+        cls.renderer = mujoco.Renderer(cls.host_model, 512, 512)
 
     @classmethod
     def host_step(cls, state, action, env_config: EnvConfig):
         cls.model.opt.timestep = env_config.dt / env_config.substep
-        cls.data.qpos[:] = state[: cls.model.nq]
-        cls.data.qvel[:] = state[cls.model.nq :]
+        data.qpos[:] = state[: cls.model.nq]
+        data.qvel[:] = state[cls.model.nq :]
 
         for _ in range(env_config.substep):
             cls.data.ctrl[:] = action
@@ -40,11 +41,17 @@ class Finger:
 
     @classmethod
     def step(cls, state, action, env_config: EnvConfig):
-        return jax.pure_callback(
-            cls.host_step,
-            state,
-            *(state, action, env_config),
-        )
+        data = mjx.make_data(cls.model)
+        qpos = state[: cls.model.nq]
+        qvel = state[cls.model.nq :]
+        
+        data = data.replace(qpos=qpos, qvel=qvel, ctrl=action)
+        
+        next_data = mjx.step(cls.model, data)
+        next_qpos = next_data.qpos
+        next_qvel = next_data.qvel
+        
+        return jnp.concatenate([next_qpos, next_qvel], dtype=jnp.float32)
 
     @classmethod
     def host_get_home_state(cls):
@@ -54,7 +61,7 @@ class Finger:
 
     @classmethod
     def get_home_state(cls):
-        return cls.home_state
+        return mjx.reset_data
 
     @classmethod
     def host_make_state(cls):
@@ -80,7 +87,7 @@ class Finger:
 
     @classmethod
     def send_wandb_video_for_id_tap(cls, tap_pack, _):
-        return # I can't fix this function, not sure why it's broken
+        # return # I can't fix this function, not sure why it's broken
         states, env_config = tap_pack
         fps = 24
         stride = int(1 / fps / env_config.dt)
