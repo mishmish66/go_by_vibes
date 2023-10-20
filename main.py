@@ -86,7 +86,7 @@ os.makedirs(checkpoint_dir)
 checkpointer = ocp.PyTreeCheckpointer()
 
 learning_rate = float(2.5e-4)
-every_k = 8
+every_k = 1
 
 env_cls = Finger
 
@@ -118,8 +118,8 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=1024,
-    epochs=16,
-    batch_size=256,
+    epochs=128,
+    batch_size=32,
     every_k=every_k,
     traj_per_rollout=1024,
     rollout_length=500,
@@ -127,7 +127,7 @@ vibe_config = TrainConfig.init(
     forward_weight=1.0,
     smoothness_weight=10.0,
     condensation_weight=1.0,
-    dispersion_weight=4.0,
+    dispersion_weight=10.0,
     inverse_reconstruction_gate_sharpness=1,
     inverse_forward_gate_sharpness=1,
     inverse_reconstruction_gate_center=-3,
