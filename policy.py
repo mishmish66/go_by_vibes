@@ -6,13 +6,28 @@ from training.nets import (
     encoded_action_dim,
 )
 
+from training.vibe_state import TrainConfig
+
 from einops import einsum
 
-from training.inference import infer_states, make_mask
+from training.inference import (
+    infer_states,
+    make_mask,
+    get_latent_state_prime_gaussians,
+    encode_state,
+    encode_action,
+    decode_action,
+    encoded_state_dim,
+    encoded_action_dim,
+)
+
+from training.rollout import collect_rollout
 
 # from training.vibe_state import collect_latent_rollout
 
 from training.loss import sample_gaussian
+
+from dataclasses import dataclass
 
 
 def random_action(key, action_bounds):
@@ -43,85 +58,161 @@ def make_traj_opt_policy(cost_func):
         pass
 
 
-def max_dist_policy(
+@jax.tree_util.register_pytree_node_class
+@dataclass
+class PresetActor:
+    actions: all
+
+    def tree_flatten(self):
+        return (self.actions,), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
+
+    def __call__(self, key, state, i, vibe_state, vibe_config):
+        # encode the state
+        rng, key = jax.random.split(key)
+        latent_state = encode_state(rng, state, vibe_state, vibe_config)
+
+        # decode the action
+        latent_action = self.actions[i]
+        rng, key = jax.random.split(key)
+        action = decode_action(
+            rng, latent_action, latent_state, vibe_state, vibe_config
+        )
+        return action
+
+
+def make_optimized_actions(
     key,
     start_state,
+    cost_func,
     vibe_state,
-    vibe_config,
-    window=64,
-    guess_count=128,
-    refine_steps=256,
+    vibe_config: TrainConfig,
+    env_cls,
+    refine_steps=2048,
+    target_uncertainty=0.25,
 ):
-    """This policy shoots 128 random actions at the environment, refines them,
-    and returns the one with the highest reward."""
-
-    def max_dist_objective(
-        latent_actions,
-        key,
-    ):
-        latent_states = jnp.zeros(
-            (latent_actions.shape[0], vibe_config.env_config.state_dim)
-        )
-        latent_rollout = infer_states(
-            key,
-            latent_states,
-            latent_actions,
-            vibe_state,
-            vibe_config,
-            make_mask(latent_actions.shape[0], 1),
-        )
-
-        diffs = latent_rollout - latent_start_state
-        diff_mag = jnp.linalg.norm(diffs, axis=-1)
-
-        return jnp.sum(diff_mag)
+    horizon = vibe_config.rollout_length
 
     rng, key = jax.random.split(key)
-    latent_start_state = encode_state(rng, state_encoder_state, start_state)
+    latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
 
-    rng, key = jax.random.split(key)
-    latent_action_guesses = jax.random.normal(
-        rng,
-        (
-            guess_count,
-            window,
-            encoded_action_dim,
-        ),
-    )
+    # def cost_func(latent_actions):
+    #     latent_state_prime_gaussians = get_latent_state_prime_gaussians(
+    #         latent_start_state, latent_actions, vibe_state, vibe_config
+    #     )
 
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, latent_action_guesses.shape[0])
-    guess_scores = jax.vmap(max_dist_objective, in_axes=(0, 0))(
-        rngs, latent_action_guesses
-    )
+    #     latent_state_prime_gaussian_vars = latent_state_prime_gaussians[
+    #         ..., encoded_state_dim:
+    #     ]
+    #     latent_state_prime_gaussian_var_l1 = jnp.linalg.norm(
+    #         latent_state_prime_gaussian_vars, ord=1, axis=-1
+    #     )
 
-    best_guess_i = jnp.argmax(guess_scores)
+    #     uncertainty_error = jnp.abs(
+    #         latent_state_prime_gaussian_var_l1 - target_uncertainty
+    #     )
 
-    best_guess = latent_action_guesses[best_guess_i]
+    #     return jnp.mean(uncertainty_error)
+
+    step_size = 0.125
 
     def scanf(current_plan, key):
         rng, key = jax.random.split(key)
-
-        act_grad = jax.grad(max_dist_objective, 1)(
-            rng,
+        cost, act_grad = jax.value_and_grad(cost_func)(
             current_plan,
+            latent_start_state,
+            vibe_state,
+            vibe_config,
+            rng,
         )
 
-        next_plan = current_plan - 0.1 * act_grad
-        return next_plan, None
+        next_plan = current_plan - step_size * act_grad
+        return next_plan, cost
 
     rng, key = jax.random.split(key)
-    encoded_action_sequence, _ = jax.lax.scan(
-        scanf, best_guess, jax.random.split(rng, refine_steps)
+    rngs = jax.random.split(rng, horizon)
+
+    rng, key = jax.random.split(key)
+    random_states, random_actions = collect_rollout(
+        start_state,
+        random_policy,
+        env_cls,
+        vibe_state,
+        vibe_config,
+        rng,
     )
 
-    latent_next_action = encoded_action_sequence[0]
+    latent_random_states = jax.vmap(encode_state, (0, 0, None, None))(
+        rngs, random_states, vibe_state, vibe_config
+    )
 
-    next_action_gaussian = get_action_space_gaussian(
-        action_decoder_state, latent_next_action, latent_start_state
+    latent_random_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
+        rngs, random_actions, latent_random_states, vibe_state, vibe_config
     )
 
     rng, key = jax.random.split(key)
-    sampled_next_action = sample_gaussian(rng, next_action_gaussian)
+    scan_rng = jax.random.split(rng, refine_steps)
+    encoded_action_sequence, costs = jax.lax.scan(scanf, latent_random_actions, scan_rng)
 
-    return sampled_next_action
+    return PresetActor(encoded_action_sequence), costs
+
+
+def make_target_conf_policy(
+    key,
+    start_state,
+    vibe_state,
+    vibe_config: TrainConfig,
+    env_cls,
+    refine_steps=2048,
+    target_uncertainty=0.25,
+):
+    def cost_func(
+        latent_actions,
+        latent_start_state,
+        vibe_state,
+        vibe_config,
+        key,
+    ):
+        latent_state_prime_gaussians = get_latent_state_prime_gaussians(
+            latent_start_state, latent_actions, vibe_state, vibe_config
+        )
+
+        latent_state_prime_gaussian_vars = latent_state_prime_gaussians[
+            ..., encoded_state_dim:
+        ]
+        latent_state_prime_gaussian_var_l1 = jnp.linalg.norm(
+            latent_state_prime_gaussian_vars, ord=1, axis=-1
+        )
+
+        uncertainty_error = jnp.abs(
+            latent_state_prime_gaussian_var_l1 - target_uncertainty
+        )
+
+        return jnp.mean(uncertainty_error)
+
+    return make_optimized_actions(
+        key,
+        start_state,
+        cost_func,
+        vibe_state,
+        vibe_config,
+        env_cls,
+        refine_steps=refine_steps,
+        target_uncertainty=target_uncertainty,
+    )[0]
+
+
+def make_piecewise_actor(a, b, first_b_idx):
+    def actor(key, state, i, vibe_state, vibe_config):
+        result = jax.lax.cond(
+            i < first_b_idx,
+            lambda _: a(key, state, i, vibe_state, vibe_config),
+            lambda _: b(key, state, i, vibe_state, vibe_config),
+            operand=None,
+        )
+        return result
+
+    return actor

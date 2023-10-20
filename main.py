@@ -24,7 +24,9 @@ from einops import einops, einsum
 import matplotlib.pyplot as plt
 
 from embeds import EmbeddingLayer
-from training.rollout import collect_rollout, evaluate_actor
+from training.rollout import collect_rollout
+
+from training.eval_actor import evaluate_actor
 from training.vibe_state import (
     VibeState,
     TrainConfig,
@@ -44,7 +46,11 @@ import orbax.checkpoint as ocp
 # from unitree_go1 import UnitreeGo1
 
 from training.train import train_step, dump_to_wandb
-from policy import random_policy  # , max_dist_policy
+from policy import (
+    random_policy,
+    make_target_conf_policy,
+    make_piecewise_actor,
+)  # , max_dist_policy
 
 import timeit
 
@@ -127,7 +133,7 @@ vibe_config = TrainConfig.init(
     forward_weight=1.0,
     smoothness_weight=10.0,
     condensation_weight=1.0,
-    dispersion_weight=10.0,
+    dispersion_weight=5.0,
     inverse_reconstruction_gate_sharpness=1,
     inverse_forward_gate_sharpness=1,
     inverse_reconstruction_gate_center=-3,
@@ -155,7 +161,7 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 wandb.init(
     project="go_by_vibes",
     config=vibe_config.make_dict(),
-    # mode="disabled",
+    mode="disabled",
 )
 
 
@@ -169,37 +175,94 @@ def do_rollout(carry_pack, _):
 
     steps = vibe_config.epochs * vibe_config.traj_per_rollout / vibe_config.batch_size
 
-    checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_r{rollout_i}_s{steps}")
+    def checkpoint_for_id_tap(tap_pack, _):
+        vibe_state, rollout_i, steps = tap_pack
+        checkpoint_path = os.path.join(
+            checkpoint_dir, f"checkpoint_r{rollout_i}_s{steps}"
+        )
+        checkpointer.save(checkpoint_path, vibe_state)
 
     jax.experimental.host_callback.id_tap(
-        lambda vibe_state, _: checkpointer.save(checkpoint_path, vibe_state),
-        vibe_state,
+        checkpoint_for_id_tap,
+        (vibe_state, rollout_i, steps),
+    )
+
+    def collect_conf_rollout(key):
+        rng, key = jax.random.split(key)
+        actor = make_target_conf_policy(
+            rng,
+            start_state,
+            vibe_state,
+            vibe_config,
+            env_cls,
+        )
+
+        rng, key = jax.random.split(key)
+        rollout_result = collect_rollout(
+            start_state,
+            actor,
+            env_cls,
+            vibe_state,
+            vibe_config,
+            rng,
+        )
+
+        return rollout_result
+
+    def collect_rng_conf_rollout(key):
+        rng, key = jax.random.split(key)
+        conf_actor = make_target_conf_policy(
+            rng,
+            start_state,
+            vibe_state,
+            vibe_config,
+            env_cls,
+        )
+
+        rng_actor = random_policy
+
+        actor = make_piecewise_actor(
+            conf_actor, rng_actor, vibe_config.rollout_length // 2
+        )
+
+        rng, key = jax.random.split(key)
+        rollout_result = collect_rollout(
+            start_state,
+            actor,
+            env_cls,
+            vibe_state,
+            vibe_config,
+            rng,
+        )
+
+        return rollout_result
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
+    conf_states, conf_actions = jax.vmap(collect_conf_rollout)(
+        rngs,
     )
 
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
-
-    rollout_result = jax.vmap(collect_rollout, in_axes=((None,) * 5 + (0,)))(
-        start_state,
-        policy,
-        env_cls,
-        vibe_state,
-        vibe_config,
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
+    rng_states, rng_actions = jax.vmap(collect_rng_conf_rollout)(
         rngs,
     )
+
+    states = jnp.concatenate([conf_states, rng_states], axis=0)
+    actions = jnp.concatenate([conf_actions, rng_actions], axis=0)
+
+    rollout_result = (states, actions)
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 128)
-    eval_results, infos = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
+    _, infos = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
         rngs,
         start_state,
         env_cls,
         vibe_state,
         vibe_config,
     )
-    eval_result = jnp.mean(eval_results)
-
-    # infos = infos.condense(method='unstack')
 
     infos.dump_to_wandb()
     infos.dump_to_console()
