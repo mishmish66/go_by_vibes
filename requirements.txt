@@ -1,0 +1,5 @@
+mujoco-mjx
+wandb
+einops
+matplotlib
+jax
