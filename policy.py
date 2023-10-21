@@ -182,7 +182,6 @@ def make_target_conf_policy(
         vibe_config,
         env_cls,
         refine_steps=refine_steps,
-        target_uncertainty=target_uncertainty,
     )[0]
 
 
