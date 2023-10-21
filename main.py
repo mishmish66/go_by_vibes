@@ -108,9 +108,9 @@ vibe_config = TrainConfig.init(
                 learning_rate=optax.cosine_onecycle_schedule(
                     4096,
                     peak_value=learning_rate,
-                    pct_start=0,
+                    pct_start=0.1,
                     div_factor=2.5,
-                    final_div_factor=10.0,
+                    final_div_factor=25.0,
                 )
             ),
         ),
@@ -124,7 +124,7 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=1024,
-    epochs=16,
+    epochs=128,
     batch_size=32,
     every_k=every_k,
     traj_per_rollout=128,
