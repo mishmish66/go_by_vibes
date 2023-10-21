@@ -98,7 +98,7 @@ def make_optimized_actions(
     rng, key = jax.random.split(key)
     latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
 
-    step_size = 0.05
+    step_size = 0.1
 
     def scanf(current_plan, key):
         rng, key = jax.random.split(key)
