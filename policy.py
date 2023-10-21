@@ -91,33 +91,14 @@ def make_optimized_actions(
     vibe_state,
     vibe_config: TrainConfig,
     env_cls,
-    refine_steps=2048,
-    target_uncertainty=0.25,
+    refine_steps=4096,
 ):
     horizon = vibe_config.rollout_length
 
     rng, key = jax.random.split(key)
     latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
 
-    # def cost_func(latent_actions):
-    #     latent_state_prime_gaussians = get_latent_state_prime_gaussians(
-    #         latent_start_state, latent_actions, vibe_state, vibe_config
-    #     )
-
-    #     latent_state_prime_gaussian_vars = latent_state_prime_gaussians[
-    #         ..., encoded_state_dim:
-    #     ]
-    #     latent_state_prime_gaussian_var_l1 = jnp.linalg.norm(
-    #         latent_state_prime_gaussian_vars, ord=1, axis=-1
-    #     )
-
-    #     uncertainty_error = jnp.abs(
-    #         latent_state_prime_gaussian_var_l1 - target_uncertainty
-    #     )
-
-    #     return jnp.mean(uncertainty_error)
-
-    step_size = 0.125
+    step_size = 0.05
 
     def scanf(current_plan, key):
         rng, key = jax.random.split(key)
@@ -167,7 +148,7 @@ def make_target_conf_policy(
     vibe_config: TrainConfig,
     env_cls,
     refine_steps=2048,
-    target_uncertainty=0.25,
+    target_uncertainty=2.5e-4,
 ):
     def cost_func(
         latent_actions,
