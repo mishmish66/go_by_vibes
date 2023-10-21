@@ -40,6 +40,8 @@ class Finger:
 
     @classmethod
     def step(cls, state, action, env_config: EnvConfig):
+        
+        action = jnp.nan_to_num(action)
         data = mjx.make_data(cls.model)
         qpos = state[: cls.model.nq]
         qvel = state[cls.model.nq :]

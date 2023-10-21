@@ -107,8 +107,8 @@
     </worldbody>
 
     <actuator>
-        <position class="hip" name="FR_thigh" joint="FR_thigh_joint" />
-        <position class="knee" name="FR_calf" joint="FR_calf_joint" />
+        <position class="hip" name="FR_thigh" joint="FR_thigh_joint" forcerange="-20 20" />
+        <position class="knee" name="FR_calf" joint="FR_calf_joint" forcerange="-20 20" />
     </actuator>
 
     <keyframe>

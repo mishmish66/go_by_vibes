@@ -124,16 +124,16 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=1024,
-    epochs=128,
+    epochs=16,
     batch_size=32,
     every_k=every_k,
-    traj_per_rollout=1024,
-    rollout_length=500,
+    traj_per_rollout=128,
+    rollout_length=512,
     reconstruction_weight=1.0,
     forward_weight=1.0,
     smoothness_weight=10.0,
     condensation_weight=1.0,
-    dispersion_weight=5.0,
+    dispersion_weight=7.5,
     inverse_reconstruction_gate_sharpness=1,
     inverse_forward_gate_sharpness=1,
     inverse_reconstruction_gate_center=-3,
@@ -237,25 +237,64 @@ def do_rollout(carry_pack, _):
 
         return rollout_result
 
+    def collect_rng_rollout(key):
+        rng, key = jax.random.split(key)
+        rollout_result = collect_rollout(
+            start_state,
+            random_policy,
+            env_cls,
+            vibe_state,
+            vibe_config,
+            rng,
+        )
+
+        return rollout_result
+
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
     conf_states, conf_actions = jax.vmap(collect_conf_rollout)(
         rngs,
     )
 
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
-    rng_states, rng_actions = jax.vmap(collect_rng_conf_rollout)(
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
+    rng_states, rng_actions = jax.vmap(collect_rng_rollout)(
         rngs,
     )
 
-    states = jnp.concatenate([conf_states, rng_states], axis=0)
-    actions = jnp.concatenate([conf_actions, rng_actions], axis=0)
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
+    rng_conf_states, rng_conf_actions = jax.vmap(collect_rng_conf_rollout)(
+        rngs,
+    )
+
+    # make backup rollouts to swap for nans
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
+    bup_states, bup_actions = jax.vmap(collect_rng_rollout)(
+        rngs,
+    )
+
+    states = jnp.concatenate([conf_states, rng_conf_states, rng_states], axis=0)
+    actions = jnp.concatenate([conf_actions, rng_conf_actions, rng_actions], axis=0)
+
+    traj_has_nan = jnp.logical_or(
+        jnp.any(jnp.isnan(states), axis=(-1, -2)),
+        jnp.any(jnp.isnan(actions), axis=(-1, -2)),
+    )
+
+    info = Infos.init()
+    info = info.add_plain_info("rollout traj nan portion", jnp.mean(traj_has_nan))
+
+    info.dump_to_wandb()
+
+    states = jnp.where(traj_has_nan[..., None, None], bup_states, states)
+    actions = jnp.where(traj_has_nan[..., None, None], bup_actions, actions)
 
     rollout_result = (states, actions)
 
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, 128)
+    rngs = jax.random.split(rng, 32)
     _, infos = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
         rngs,
         start_state,
