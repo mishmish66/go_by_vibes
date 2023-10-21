@@ -160,7 +160,10 @@ rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
 
 wandb.init(
     project="go_by_vibes",
-    config=vibe_config.make_dict(),
+    config={
+        "pwd": os.getcwd(),
+        **vibe_config.make_dict(),
+    }
     # mode="disabled",
 )
 
