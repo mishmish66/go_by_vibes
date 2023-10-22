@@ -104,6 +104,7 @@
                 <site name="FR" pos="0 0 -0.213" type="sphere" size="0.023" group="5" />
             </body>
         </body>
+        <camera name="main_cam" pos="0 -1.0 1.0" mode="targetbody" target="wheel" />
     </worldbody>
 
     <actuator>
@@ -112,8 +113,8 @@
     </actuator>
 
     <keyframe>
-        <key name="home" qpos="0 0.27 0"
-            ctrl="0.9 -1.8" />
+        <key name="home" qpos="0 1.4 -1.8"
+            ctrl="1.4 -1.8" />
     </keyframe>
 
     <visual>

@@ -16,3 +16,4 @@ TEMPORARY_LOG.txt
 xla_log/*
 MUJOCO_LOG.TXT
 checkpoints/*
+test.png

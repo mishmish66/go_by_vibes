@@ -4,3 +4,5 @@ wandb
 einops
 matplotlib
 flax
+moviepy
+imageio

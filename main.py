@@ -167,6 +167,9 @@ wandb.init(
     # mode="disabled",
 )
 
+send_actor_video = env_cls.make_wandb_sender("actor_video")
+send_rollout_video = env_cls.make_wandb_sender("rollout video")
+
 
 def dump_to_wandb_for_tap(tap_pack, _):
     infos, rollout_i, epoch_i, chunk_i = tap_pack
@@ -298,7 +301,9 @@ def do_rollout(carry_pack, _):
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 32)
-    _, infos = jax.vmap(evaluate_actor, in_axes=(0, None, None, None, None))(
+    (eval_states, _), infos = jax.vmap(
+        evaluate_actor, in_axes=(0, None, None, None, None)
+    )(
         rngs,
         start_state,
         env_cls,
@@ -306,10 +311,15 @@ def do_rollout(carry_pack, _):
         vibe_config,
     )
 
+    rng, key = jax.random.split(key)
+    random_traj = jax.random.choice(rng, eval_states, axis=0)
+
+    send_actor_video(random_traj, env_config)
+
     infos.dump_to_wandb()
     infos.dump_to_console()
 
-    env_cls.send_wandb_video(rollout_result[0][0], env_config)
+    send_rollout_video(rollout_result[0][0], env_config)
 
     # from jax import config
     # config.update("jax_disable_jit", True)

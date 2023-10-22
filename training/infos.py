@@ -97,10 +97,12 @@ class Infos:
         )
 
     def host_get_dict(self):
+        def remove_nan(x):
+            return jax.tree_map(lambda x: x[jnp.isnan(x) == False], self.masked_infos)
         result_dict = {
             **{name: value[mask] for name, (value, mask) in self.masked_infos.items()},
-            **self.plain_infos,
-            **self.loss_infos,
+            **remove_nan(self.plain_infos),
+            **remove_nan(self.loss_infos),
         }
 
         return result_dict

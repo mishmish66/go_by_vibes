@@ -1,9 +1,10 @@
 import os
 
-os.environ["MUJOCO_GL"] = "egl"
+os.environ["MUJOCO_GL"] = "osmesa"
 
 import jax
 from jax import numpy as jnp
+from jax.experimental.host_callback import id_tap
 
 import numpy as np
 
@@ -14,9 +15,10 @@ from mujoco import mjx
 
 from training.env_config import EnvConfig
 
-from jax.experimental.host_callback import id_tap
+# from jax.experimental.host_callback import id_tap
 import wandb
 
+import time
 
 @dataclass
 class Finger:
@@ -40,37 +42,34 @@ class Finger:
 
     @classmethod
     def step(cls, state, action, env_config: EnvConfig):
-        
         action = jnp.nan_to_num(action)
         data = mjx.make_data(cls.model)
         qpos = state[: cls.model.nq]
         qvel = state[cls.model.nq :]
-        
+
         data = data.replace(qpos=qpos, qvel=qvel, ctrl=action)
-        
+
         next_data = mjx.step(cls.model, data)
         next_qpos = next_data.qpos
         next_qvel = next_data.qvel
-        
+
         return jnp.concatenate([next_qpos, next_qvel], dtype=jnp.float32)
 
     # @classmethod
     # def host_make_state(cls):
     #     return np.concatenate([cls.data.qpos, cls.data.qvel], dtype=np.float32)
-    
+
     @classmethod
     def make_state(cls, data):
         return jnp.concatenate([data.qpos, data.qvel], dtype=jnp.float32)
-        
 
     @classmethod
     def init(cls):
         data = mjx.make_data(cls.model)
-        
+        data = data.replace(qpos=jnp.array([0, 1.4, -1.8]))
+
         return cls.make_state(data)
-        
-        
-    
+
     @classmethod
     def get_config(cls):
         return EnvConfig(
@@ -84,32 +83,55 @@ class Finger:
     @classmethod
     def host_render_frame(cls, state):
         host_data = mujoco.MjData(cls.host_model)
-        
-        host_data.qpos[:] = state[: cls.host_model.nq]
-        host_data.qvel[:] = state[cls.host_model.nq :]
-        
-        cls.renderer.update_scene(host_data)
+
+        nq = int(cls.host_model.nq)
+
+        host_data.qpos[:] = state[:nq]
+        host_data.qvel[:] = state[nq:]
+
+        mujoco.mj_forward(cls.host_model, host_data)
+
+        cls.renderer.update_scene(host_data, "main_cam")
         img = cls.renderer.render()
+        
         return img
 
     @classmethod
-    def send_wandb_video_for_id_tap(cls, tap_pack, _):
-        return # I can't fix this function, not sure why it's broken
-        states, env_config = tap_pack
-        fps = 24
+    def host_make_video(cls, states, env_config: EnvConfig, fps=24):
         stride = int(1 / fps / env_config.dt)
-        frames = [cls.host_render_frame(state) for state in states[::stride]]
-        
-        print(f"video shape: {np.stack(frames).shape}")
+        print(f"states shape: {states.shape}")
 
-        wandb.log({"video": wandb.Video(np.stack(frames), fps=fps)})
+        frames = []
+        next_state_i = 0
+        while next_state_i < states.shape[0]:
+            frames.append(cls.host_render_frame(states[next_state_i]))
+            next_state_i += stride
+
+        vid_arr = np.stack(frames).transpose(0, 3, 1, 2)
+        return vid_arr
 
     @classmethod
-    def send_wandb_video(cls, states, env_config: EnvConfig):
-        id_tap(
-            cls.send_wandb_video_for_id_tap,
-            (states, env_config),
-        )
+    def host_send_wandb_video(cls, name, states, env_config):
+        print(f"Sending video {name}")
+        
+        fps = 24
+        video_array = cls.host_make_video(states, env_config, fps)
+        
+        print(f"Video shape: {video_array.shape}")
+
+        wandb.log({name: wandb.Video(video_array, fps=fps)})
+
+    @classmethod
+    def make_wandb_sender(cls, video_name="video"):
+        def sender_for_id_tap(tap_pack, _):
+            (states, env_config) = tap_pack
+
+            cls.host_send_wandb_video(video_name, states, env_config)
+
+        def sender(states, env_config: EnvConfig):
+            id_tap(sender_for_id_tap, (states, env_config))
+
+        return sender
 
 
 Finger.class_init()
