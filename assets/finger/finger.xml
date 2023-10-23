@@ -74,12 +74,17 @@
         <mesh class="go1" file="thigh_mirror.stl" />
         <mesh class="go1" file="calf.stl" />
         <mesh class="go1" file="thigh.stl" />
+
+        <texture type="cube" name="wheel" builtin="checker" rgb1="0.2 0.3 0.4"
+            rgb2="0.76 0.07 0.24" width="300" height="300" />
+        <material name="wheel" texture="wheel" texuniform="true" texrepeat="5 5"
+            reflectance="0.2" />
     </asset>
 
     <worldbody>
         <body name="wheel" pos="0.5 0 0.35">
             <joint name="wheel_axis" />
-            <geom type="capsule" size="0.2 0.1" />
+            <geom type="capsule" size="0.2 0.1" material="wheel" />
             <inertial pos="0 0 0" mass="20.0" diaginertia="0.5 0.5 1.0" />
         </body>
         <light name="spotlight" mode="targetbodycom" target="FR_thigh" pos="0 -1 2" />
