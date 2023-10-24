@@ -169,8 +169,11 @@ wandb.init(
     # mode="disabled",
 )
 
-send_actor_video = env_cls.make_wandb_sender("actor_video")
-send_rollout_video = env_cls.make_wandb_sender("rollout video")
+send_min_conf_video = env_cls.make_wandb_sender("min conf video")
+send_random_video = env_cls.make_wandb_sender("random video")
+send_rng_conf_video = env_cls.make_wandb_sender("rng conf video")
+
+send_actor_video = env_cls.make_wandb_sender("actor video")
 
 
 def dump_to_wandb_for_tap(tap_pack, _):
@@ -324,7 +327,9 @@ def do_rollout(carry_pack, _):
     infos.dump_to_wandb()
     infos.dump_to_console()
 
-    send_rollout_video(rollout_result[0][0], env_config)
+    send_random_video(jnp.nan_to_num(rng_states[0]), env_config)
+    send_min_conf_video(jnp.nan_to_num(conf_states[0]), env_config)
+    send_rng_conf_video(jnp.nan_to_num(rng_conf_states[0]), env_config)
 
     # from jax import config
     # config.update("jax_disable_jit", True)

@@ -47,7 +47,7 @@ class Finger:
             env_config = cls.get_config()
 
         action = jnp.nan_to_num(action)
-        ctrl = action + jnp.array([1.2, -1.2])
+        ctrl = action
         
         data = mjx.make_data(cls.model)
         qpos = state[: cls.model.nq]
@@ -72,7 +72,7 @@ class Finger:
     @classmethod
     def init(cls):
         data = mjx.make_data(cls.model)
-        data = data.replace(qpos=jnp.array([0, 1.4, -1.8]))
+        data = data.replace(qpos=jnp.array([0, 0, 0]))
 
         return cls.make_state(data)
 
