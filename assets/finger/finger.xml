@@ -83,9 +83,9 @@
 
     <worldbody>
         <body name="wheel" pos="0.5 0 0.35">
-            <joint name="wheel_axis" />
+            <joint name="wheel_axis" springdamper="1 2" />
             <geom type="capsule" size="0.2 0.1" material="wheel" />
-            <inertial pos="0 0 0" mass="20.0" diaginertia="0.5 0.5 1.0" />
+            <inertial pos="0 0 0" mass="0.5" diaginertia="0.01 0.01 0.02" />
         </body>
         <light name="spotlight" mode="targetbodycom" target="FR_thigh" pos="0 -1 2" />
         <body name="FR_thigh" pos="0 -0.08 0.35" euler="-1.5708 -2.3562 0">
