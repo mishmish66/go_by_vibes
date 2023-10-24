@@ -1,8 +1,9 @@
 jax
-mujoco-mjx
-wandb
-einops
-matplotlib
 flax
+mujoco-mjx
+brax
+einops
+wandb
+matplotlib
 moviepy
 imageio

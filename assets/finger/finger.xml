@@ -110,6 +110,7 @@
             </body>
         </body>
         <camera name="main_cam" pos="0 -1.0 1.0" mode="targetbody" target="wheel" />
+        <camera name="topdown" pos="0.25 0.0 1.5" euler="0 0 1.5708" />
     </worldbody>
 
     <actuator>

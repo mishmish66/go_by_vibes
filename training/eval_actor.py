@@ -82,6 +82,7 @@ def evaluate_actor(
     random_states, random_actions = collect_rollout(
         start_state,
         loc_random_policy,
+        None,
         env_cls,
         vibe_state,
         vibe_config,
@@ -145,6 +146,7 @@ def evaluate_actor(
     result_states, result_actions = collect_rollout(
         start_state,
         actor,
+        None,
         env_cls,
         vibe_state,
         vibe_config,

@@ -22,6 +22,7 @@ from .infos import Infos
 def collect_rollout(
     start_state,
     policy,
+    init_policy_carry,
     env_cls,
     vibe_state,
     vibe_config,
@@ -29,18 +30,20 @@ def collect_rollout(
 ):
     # Collect a rollout of physics data
     def scanf(carry, _):
-        state, key, i = carry
+        state, key, i, policy_carry = carry
 
         rng, key = jax.random.split(key)
-        action = policy(rng, state, i, vibe_state, vibe_config)
+        action, policy_carry = policy(
+            rng, state, i, policy_carry, vibe_state, vibe_config
+        )
         next_state = env_cls.step(state, action, vibe_config.env_config)
 
-        return (next_state, key, i + 1), (state, action)
+        return (next_state, key, i + 1, policy_carry), (state, action)
 
     rng, key = jax.random.split(key)
     _, (states, actions) = jax.lax.scan(
         scanf,
-        (start_state, rng, 0),
+        (start_state, rng, 0, init_policy_carry),
         None,
         vibe_config.rollout_length,
     )

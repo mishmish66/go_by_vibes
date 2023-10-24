@@ -43,13 +43,37 @@ def random_policy(
     key,
     start_state,
     action_i,
+    carry,
     vibe_state,
     vibe_config,
 ):
     """This policy just samples random actions from the action space."""
 
     rng, key = jax.random.split(key)
-    return random_action(rng, vibe_config.env_config.action_bounds)
+    return random_action(rng, vibe_config.env_config.action_bounds), None
+
+
+def random_repeat_policy(
+    key,
+    start_state,
+    action_i,
+    carry,
+    vibe_state,
+    vibe_config,
+    repeat_prob=0.99,
+):
+    """This policy just samples random actions from the action space."""
+
+    rng, key = jax.random.split(key)
+    rand = jax.random.uniform(rng)
+    
+    next_action = jax.lax.cond(
+        rand < repeat_prob,
+        lambda _: carry,
+        lambda _: random_action(rng, vibe_config.env_config.action_bounds),
+        operand=None,
+    )
+    return next_action, next_action
 
 
 # Down here is not really ready, but I'm just putting it here for now
@@ -70,7 +94,7 @@ class PresetActor:
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
 
-    def __call__(self, key, state, i, vibe_state, vibe_config):
+    def __call__(self, key, state, i, carry, vibe_state, vibe_config):
         # encode the state
         rng, key = jax.random.split(key)
         latent_state = encode_state(rng, state, vibe_state, vibe_config)
@@ -81,7 +105,7 @@ class PresetActor:
         action = decode_action(
             rng, latent_action, latent_state, vibe_state, vibe_config
         )
-        return action
+        return action, carry
 
 
 def make_optimized_actions(
@@ -120,6 +144,7 @@ def make_optimized_actions(
     random_states, random_actions = collect_rollout(
         start_state,
         random_policy,
+        None,
         env_cls,
         vibe_state,
         vibe_config,
@@ -136,7 +161,9 @@ def make_optimized_actions(
 
     rng, key = jax.random.split(key)
     scan_rng = jax.random.split(rng, refine_steps)
-    encoded_action_sequence, costs = jax.lax.scan(scanf, latent_random_actions, scan_rng)
+    encoded_action_sequence, costs = jax.lax.scan(
+        scanf, latent_random_actions, scan_rng
+    )
 
     return PresetActor(encoded_action_sequence), costs
 
@@ -186,13 +213,13 @@ def make_target_conf_policy(
 
 
 def make_piecewise_actor(a, b, first_b_idx):
-    def actor(key, state, i, vibe_state, vibe_config):
-        result = jax.lax.cond(
+    def actor(key, state, i, carry, vibe_state, vibe_config):
+        result, carry = jax.lax.cond(
             i < first_b_idx,
-            lambda _: a(key, state, i, vibe_state, vibe_config),
-            lambda _: b(key, state, i, vibe_state, vibe_config),
+            lambda _: a(key, state, i, carry, vibe_state, vibe_config),
+            lambda _: b(key, state, i, carry, vibe_state, vibe_config),
             operand=None,
         )
-        return result
+        return result, carry
 
     return actor

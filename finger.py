@@ -20,6 +20,7 @@ import wandb
 
 import time
 
+
 @dataclass
 class Finger:
     @classmethod
@@ -41,13 +42,18 @@ class Finger:
         return cls.host_make_state()
 
     @classmethod
-    def step(cls, state, action, env_config: EnvConfig):
+    def step(cls, state, action, env_config: EnvConfig = None):
+        if env_config is None:
+            env_config = cls.get_config()
+
         action = jnp.nan_to_num(action)
+        ctrl = action + jnp.array([1.2, -1.2])
+        
         data = mjx.make_data(cls.model)
         qpos = state[: cls.model.nq]
         qvel = state[cls.model.nq :]
 
-        data = data.replace(qpos=qpos, qvel=qvel, ctrl=action)
+        data = data.replace(qpos=qpos, qvel=qvel, ctrl=ctrl)
 
         next_data = mjx.step(cls.model, data)
         next_qpos = next_data.qpos
@@ -91,9 +97,9 @@ class Finger:
 
         mujoco.mj_forward(cls.host_model, host_data)
 
-        cls.renderer.update_scene(host_data, "main_cam")
+        cls.renderer.update_scene(host_data, "topdown")
         img = cls.renderer.render()
-        
+
         return img
 
     @classmethod
@@ -113,10 +119,10 @@ class Finger:
     @classmethod
     def host_send_wandb_video(cls, name, states, env_config):
         print(f"Sending video {name}")
-        
+
         fps = 24
         video_array = cls.host_make_video(states, env_config, fps)
-        
+
         print(f"Video shape: {video_array.shape}")
 
         wandb.log({name: wandb.Video(video_array, fps=fps)})
@@ -135,35 +141,3 @@ class Finger:
 
 
 Finger.class_init()
-
-
-# Testing code
-if __name__ == "__main__":
-    import time
-    import mujoco.viewer
-
-    with mujoco.viewer.launch_passive(Finger.model, Finger.data) as viewer:
-        start = time.time()
-
-        jax_state = Finger.get_home_state()
-        jax_act = jnp.zeros(UnitreeGo1.model.nu)
-        env_config = Finger.get_config()
-
-        while viewer.is_running() and time.time() - start < 30:
-            step_start = time.time()
-
-            # mj_step can be replaced with code that also evaluates
-            # a policy and applies a control signal before stepping the physics.
-
-            jax_state = Finger.step(jax_state, jax_act, env_config)
-
-            # Pick up changes to the physics state, apply perturbations, update options from GUI.
-            viewer.sync()
-
-            # Rudimentary time keeping, will drift relative to wall clock.
-            time_until_next_step = Finger.model.opt.timestep - (
-                time.time() - step_start
-            )
-
-            if time_until_next_step > 0:
-                time.sleep(time_until_next_step)

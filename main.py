@@ -48,8 +48,10 @@ import orbax.checkpoint as ocp
 from training.train import train_step, dump_to_wandb
 from policy import (
     random_policy,
+    random_repeat_policy,
     make_target_conf_policy,
     make_piecewise_actor,
+    random_action,
 )  # , max_dist_policy
 
 import timeit
@@ -91,7 +93,7 @@ os.makedirs(checkpoint_dir)
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(2.5e-4)
+learning_rate = float(1.0e-4)
 every_k = 1
 
 env_cls = Finger
@@ -110,7 +112,7 @@ vibe_config = TrainConfig.init(
                     peak_value=learning_rate,
                     pct_start=0.1,
                     div_factor=2.5,
-                    final_div_factor=25.0,
+                    final_div_factor=10.0,
                 )
             ),
         ),
@@ -207,6 +209,7 @@ def do_rollout(carry_pack, _):
         rollout_result = collect_rollout(
             start_state,
             actor,
+            None,
             env_cls,
             vibe_state,
             vibe_config,
@@ -225,33 +228,35 @@ def do_rollout(carry_pack, _):
             env_cls,
         )
 
-        rng_actor = random_policy
+        rng_actor = random_repeat_policy
 
         actor = make_piecewise_actor(
             conf_actor, rng_actor, vibe_config.rollout_length // 2
         )
 
-        rng, key = jax.random.split(key)
+        rng1, rng2, key = jax.random.split(key, 3)
         rollout_result = collect_rollout(
             start_state,
             actor,
+            random_action(rng1, vibe_config.env_config.action_bounds),
             env_cls,
             vibe_state,
             vibe_config,
-            rng,
+            rng2,
         )
 
         return rollout_result
 
     def collect_rng_rollout(key):
-        rng, key = jax.random.split(key)
+        rng1, rng2, key = jax.random.split(key, 3)
         rollout_result = collect_rollout(
             start_state,
-            random_policy,
+            random_repeat_policy,
+            random_action(rng1, vibe_config.env_config.action_bounds),
             env_cls,
             vibe_state,
             vibe_config,
-            rng,
+            rng2,
         )
 
         return rollout_result
