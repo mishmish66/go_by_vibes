@@ -13,11 +13,11 @@
                 <position ctrlrange="-0.863 0.863" />
             </default>
             <default class="hip">
-                <joint range="-0.5 0.5" ref="-1.35" />
+                <joint ref="-1.35" />
                 <position ctrlrange="-0.5 0.5" />
             </default>
             <default class="knee">
-                <joint range="-0.5 1.5" ref="1.7" />
+                <joint ref="1.7" />
                 <position forcerange="-35.55 35.55" ctrlrange="-0.5 1.5" />
             </default>
             <default class="visual">
@@ -117,11 +117,6 @@
         <position class="hip" name="FR_thigh" joint="FR_thigh_joint" forcerange="-20 20" />
         <position class="knee" name="FR_calf" joint="FR_calf_joint" forcerange="-20 20" />
     </actuator>
-
-    <keyframe>
-        <key name="home" qpos="0 1.4 -1.8"
-            ctrl="1.4 -1.8" />
-    </keyframe>
 
     <visual>
         <global offwidth="1024" offheight="1024" />
