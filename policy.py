@@ -182,7 +182,7 @@ def make_optimized_actions(
     )
     
     rng, key = jax.random.split(key)
-    scan_rng = jax.random.split(rng, big_steps)
+    scan_rng = jax.random.split(rng, small_steps)
     fine_latent_action_sequence, costs = jax.lax.scan(
         small_scanf, coarse_latent_action_sequence, scan_rng
     )
