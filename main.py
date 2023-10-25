@@ -302,8 +302,8 @@ def do_rollout(carry_pack, _):
 
     info.dump_to_wandb()
 
-    states = jnp.where(traj_has_nan[..., None, None], bup_states, states)
-    actions = jnp.where(traj_has_nan[..., None, None], bup_actions, actions)
+    states = jnp.where(traj_has_nan[..., None, None], states, bup_states)
+    actions = jnp.where(traj_has_nan[..., None, None], actions, bup_actions)
 
     rollout_result = (states, actions)
 
