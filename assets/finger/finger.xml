@@ -83,7 +83,7 @@
 
     <worldbody>
         <body name="wheel" pos="0.5 0 0.35">
-            <joint name="wheel_axis" springdamper="1 2" />
+            <joint name="wheel_axis" springdamper="1 10" />
             <geom type="capsule" size="0.2 0.1" material="wheel" />
             <inertial pos="0 0 0" mass="0.5" diaginertia="0.01 0.01 0.02" />
         </body>
