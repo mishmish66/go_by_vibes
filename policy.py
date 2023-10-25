@@ -122,7 +122,7 @@ def make_optimized_actions(
     latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
 
     big_step_size = 0.5
-    big_steps = 32
+    big_steps = 512
 
     small_step_size = 0.005
     small_steps = 512
