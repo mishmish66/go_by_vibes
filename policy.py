@@ -66,7 +66,7 @@ def random_repeat_policy(
 
     rng, key = jax.random.split(key)
     rand = jax.random.uniform(rng)
-    
+
     next_action = jax.lax.cond(
         rand < repeat_prob,
         lambda _: carry,
@@ -115,16 +115,19 @@ def make_optimized_actions(
     vibe_state,
     vibe_config: TrainConfig,
     env_cls,
-    refine_steps=4096,
 ):
     horizon = vibe_config.rollout_length
 
     rng, key = jax.random.split(key)
     latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
 
-    step_size = 0.1
+    big_step_size = 1.0
+    big_steps = 16
 
-    def scanf(current_plan, key):
+    small_step_size = 0.025
+    small_steps = 128
+
+    def big_scanf(current_plan, key):
         rng, key = jax.random.split(key)
         cost, act_grad = jax.value_and_grad(cost_func)(
             current_plan,
@@ -134,7 +137,20 @@ def make_optimized_actions(
             rng,
         )
 
-        next_plan = current_plan - step_size * act_grad
+        next_plan = current_plan - big_step_size * act_grad
+        return next_plan, cost
+
+    def small_scanf(current_plan, key):
+        rng, key = jax.random.split(key)
+        cost, act_grad = jax.value_and_grad(cost_func)(
+            current_plan,
+            latent_start_state,
+            vibe_state,
+            vibe_config,
+            rng,
+        )
+
+        next_plan = current_plan - small_step_size * act_grad
         return next_plan, cost
 
     rng, key = jax.random.split(key)
@@ -160,12 +176,18 @@ def make_optimized_actions(
     )
 
     rng, key = jax.random.split(key)
-    scan_rng = jax.random.split(rng, refine_steps)
-    encoded_action_sequence, costs = jax.lax.scan(
-        scanf, latent_random_actions, scan_rng
+    scan_rng = jax.random.split(rng, big_steps)
+    coarse_latent_action_sequence, costs = jax.lax.scan(
+        big_scanf, latent_random_actions, scan_rng
+    )
+    
+    rng, key = jax.random.split(key)
+    scan_rng = jax.random.split(rng, big_steps)
+    fine_latent_action_sequence, costs = jax.lax.scan(
+        small_scanf, coarse_latent_action_sequence, scan_rng
     )
 
-    return PresetActor(encoded_action_sequence), costs
+    return PresetActor(fine_latent_action_sequence), costs
 
 
 def make_target_conf_policy(
