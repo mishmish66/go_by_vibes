@@ -137,8 +137,13 @@ def make_optimized_actions(
             rng,
         )
 
-        next_plan = current_plan - big_step_size * act_grad
-        return next_plan, cost
+        column_norms = jnp.linalg.norm(act_grad, ord=2, axis=0)
+        max_column_norm_i = jnp.argmax(column_norms)
+
+        next_plan = current_plan.at[max_column_norm_i].set(
+            big_step_size * act_grad[max_column_norm_i]
+        )
+        return next_plan, (cost, max_column_norm_i)
 
     def small_scanf(current_plan, key):
         rng, key = jax.random.split(key)
@@ -177,19 +182,19 @@ def make_optimized_actions(
 
     rng, key = jax.random.split(key)
     scan_rng = jax.random.split(rng, big_steps)
-    coarse_latent_action_sequence, big_costs = jax.lax.scan(
+    coarse_latent_action_sequence, (big_costs, big_active_inds) = jax.lax.scan(
         big_scanf, latent_random_actions, scan_rng
     )
-    
+
     rng, key = jax.random.split(key)
     scan_rng = jax.random.split(rng, small_steps)
     fine_latent_action_sequence, small_costs = jax.lax.scan(
         small_scanf, coarse_latent_action_sequence, scan_rng
     )
-    
+
     costs = jnp.concatenate([big_costs, small_costs], axis=0)
 
-    return PresetActor(fine_latent_action_sequence), costs
+    return PresetActor(fine_latent_action_sequence), (costs, big_active_inds)
 
 
 def make_target_conf_policy(

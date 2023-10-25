@@ -133,7 +133,7 @@ def evaluate_actor(
     # actor = PresetActor(result_latent_action_plan)
 
     rng, key = jax.random.split(key)
-    actor, costs = make_optimized_actions(
+    actor, (costs, big_active_inds) = make_optimized_actions(
         rng,
         start_state,
         latent_action_plan_cost_func,
@@ -159,6 +159,8 @@ def evaluate_actor(
     info = info.add_plain_info("final_cost", final_cost)
     info = info.add_plain_info("starting expected cost", costs[0])
     info = info.add_plain_info("mid expected cost", costs[costs.shape[0] // 2])
+    
+    info.add_plain_info("big active inds", big_active_inds)
 
     min_idx = jnp.argmin(costs)
     max_idx = jnp.argmax(costs)
