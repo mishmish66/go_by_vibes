@@ -121,11 +121,11 @@ def make_optimized_actions(
     rng, key = jax.random.split(key)
     latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
 
-    big_step_size = 1.0
-    big_steps = 16
+    big_step_size = 0.5
+    big_steps = 32
 
-    small_step_size = 0.025
-    small_steps = 128
+    small_step_size = 0.005
+    small_steps = 512
 
     def big_scanf(current_plan, key):
         rng, key = jax.random.split(key)
@@ -177,15 +177,17 @@ def make_optimized_actions(
 
     rng, key = jax.random.split(key)
     scan_rng = jax.random.split(rng, big_steps)
-    coarse_latent_action_sequence, costs = jax.lax.scan(
+    coarse_latent_action_sequence, big_costs = jax.lax.scan(
         big_scanf, latent_random_actions, scan_rng
     )
     
     rng, key = jax.random.split(key)
-    scan_rng = jax.random.split(rng, big_steps)
-    fine_latent_action_sequence, costs = jax.lax.scan(
+    scan_rng = jax.random.split(rng, small_steps)
+    fine_latent_action_sequence, small_costs = jax.lax.scan(
         small_scanf, coarse_latent_action_sequence, scan_rng
     )
+    
+    costs = jnp.concatenate([big_costs, small_costs], axis=0)
 
     return PresetActor(fine_latent_action_sequence), costs
 

@@ -135,7 +135,7 @@ vibe_config = TrainConfig.init(
     forward_weight=1.0,
     smoothness_weight=10.0,
     condensation_weight=1.0,
-    dispersion_weight=7.5,
+    dispersion_weight=20.0,
     inverse_reconstruction_gate_sharpness=1,
     inverse_forward_gate_sharpness=1,
     inverse_reconstruction_gate_center=-3,
@@ -292,10 +292,12 @@ def do_rollout(carry_pack, _):
     states = jnp.concatenate([conf_states, rng_conf_states, rng_states], axis=0)
     actions = jnp.concatenate([conf_actions, rng_conf_actions, rng_actions], axis=0)
 
-    traj_has_nan = jnp.ones_like(jnp.logical_or(
-        jnp.any(jnp.isnan(states), axis=(-1, -2)),
-        jnp.any(jnp.isnan(actions), axis=(-1, -2)),
-    ))
+    traj_has_nan = jnp.ones_like(
+        jnp.logical_or(
+            jnp.any(jnp.isnan(states), axis=(-1, -2)),
+            jnp.any(jnp.isnan(actions), axis=(-1, -2)),
+        )
+    )
 
     info = Infos.init()
     info = info.add_plain_info("rollout traj nan portion", jnp.mean(traj_has_nan))

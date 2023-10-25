@@ -64,17 +64,22 @@ def encode_state(
 
     return latent_state
 
-def get_neighborhood_state(key, latent_state):
-    rng, key = jax.random.split(key)
-    ball_sample = jax.random.ball(rng, encoded_state_dim)
 
-    return latent_state + ball_sample
+def get_neighborhood_state(key, latent_state):
+    rng1, rng2, key = jax.random.split(key, 3)
+    ball_sample = jax.random.ball(rng1, encoded_state_dim, p=1)
+    gauss_sample = jax.random.truncated_normal(rng2, 0, 1)
+
+    return latent_state + ball_sample * gauss_sample
+
 
 def get_neighborhood_action(key, latent_action):
-    rng, key = jax.random.split(key)
-    ball_sample = jax.random.ball(rng, encoded_action_dim)
-    
-    return latent_action + ball_sample
+    rng1, rng2, key = jax.random.split(key, 3)
+    ball_sample = jax.random.ball(rng1, encoded_action_dim)
+    gauss_sample = jax.random.truncated_normal(rng2, 0, 1)
+
+    return latent_action + ball_sample * gauss_sample
+
 
 def get_latent_action_gaussian(
     action,
