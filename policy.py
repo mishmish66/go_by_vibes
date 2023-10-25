@@ -196,7 +196,6 @@ def make_target_conf_policy(
     vibe_state,
     vibe_config: TrainConfig,
     env_cls,
-    refine_steps=2048,
     target_uncertainty=2.5e-4,
 ):
     def cost_func(
@@ -230,7 +229,6 @@ def make_target_conf_policy(
         vibe_state,
         vibe_config,
         env_cls,
-        refine_steps=refine_steps,
     )[0]
 
 
