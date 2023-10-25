@@ -292,18 +292,18 @@ def do_rollout(carry_pack, _):
     states = jnp.concatenate([conf_states, rng_conf_states, rng_states], axis=0)
     actions = jnp.concatenate([conf_actions, rng_conf_actions, rng_actions], axis=0)
 
-    traj_has_nan = jnp.logical_or(
+    traj_has_nan = jnp.ones_like(jnp.logical_or(
         jnp.any(jnp.isnan(states), axis=(-1, -2)),
         jnp.any(jnp.isnan(actions), axis=(-1, -2)),
-    )
+    ))
 
     info = Infos.init()
     info = info.add_plain_info("rollout traj nan portion", jnp.mean(traj_has_nan))
 
-    info.dump_to_wandb()
+    states = jnp.where(traj_has_nan[..., None, None], bup_states, states)
+    actions = jnp.where(traj_has_nan[..., None, None], bup_actions, actions)
 
-    states = jnp.where(traj_has_nan[..., None, None], states, bup_states)
-    actions = jnp.where(traj_has_nan[..., None, None], actions, bup_actions)
+    info.dump_to_wandb()
 
     rollout_result = (states, actions)
 
