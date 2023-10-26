@@ -137,16 +137,17 @@ def make_optimized_actions(
             rng,
         )
 
-        element_mags = jnp.abs(act_grad)
-        element_idx_1d = jnp.argmax(element_mags)
-        element_idx = jnp.unravel_index(element_idx_1d, act_grad.shape)
+        column_norms = jnp.linalg.norm(act_grad, ord=1, axis=-1)
+        max_column_idx = jnp.argmax(column_norms)
+        column_grad = act_grad[max_column_idx]
+        column_norm = column_norms[max_column_idx]
+        normalized_column_grad = column_grad / column_norm
+        
+        old_column = current_plan[max_column_idx]
+        new_column = old_column - big_step_size * normalized_column_grad
 
-        old_element = current_plan[element_idx]
-        element_grad = act_grad[element_idx]
-        new_element = old_element + big_step_size * jnp.sign(element_grad)
-
-        next_plan = current_plan.at[element_idx].set(new_element)
-        return next_plan, (cost, element_idx_1d)
+        next_plan = current_plan.at[max_column_idx].set(new_column)
+        return next_plan, (cost, max_column_idx)
 
     def small_scanf(current_plan, key):
         rng, key = jax.random.split(key)
