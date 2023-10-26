@@ -48,14 +48,24 @@ class Finger:
 
         action = jnp.nan_to_num(action)
         ctrl = action
-        
+
         data = mjx.make_data(cls.model)
         qpos = state[: cls.model.nq]
         qvel = state[cls.model.nq :]
 
         data = data.replace(qpos=qpos, qvel=qvel, ctrl=ctrl)
 
-        next_data = mjx.step(cls.model, data)
+        def scanf(data, _):
+            data = data.replace(ctrl=ctrl)
+            data = mjx.step(cls.model, data)
+            return data, _
+
+        next_data, _ = jax.lax.scan(
+            scanf,
+            data,
+            xs=None,
+            length=env_config.substep,
+        )
         next_qpos = next_data.qpos
         next_qvel = next_data.qvel
 
