@@ -295,6 +295,8 @@ def do_rollout(carry_pack, _):
     traj_has_nan = jnp.logical_or(
         jnp.any(jnp.isnan(states), axis=(-1, -2)),
         jnp.any(jnp.isnan(actions), axis=(-1, -2)),
+        jnp.any(jnp.abs(states) > 1e4, axis=(-1, -2)),
+        jnp.any(jnp.abs(actions) > 1e4, axis=(-1, -2)),
     )
 
     info = Infos.init()
