@@ -101,37 +101,6 @@ def evaluate_actor(
         rngs, random_actions, latent_random_states, vibe_state, vibe_config
     )
 
-    # stepsize = 0.125
-
-    # def scanf(carry, _):
-    #     latent_actions, key, i = carry
-
-    #     cost, grad = jax.value_and_grad(latent_action_plan_cost_func, 1)(
-    #         key,
-    #         latent_actions,
-    #     )
-
-    #     latent_actions = latent_actions - stepsize * grad
-
-    #     return (latent_actions, key, i + 1), cost
-
-    # rng, key = jax.random.split(key)
-    # init = (
-    #     latent_random_actions,
-    #     rng,
-    #     0,
-    # )
-
-    # # Now scan
-    # (result_latent_action_plan, _, _), costs = jax.lax.scan(
-    #     scanf,
-    #     init,
-    #     None,
-    #     update_steps,
-    # )
-
-    # actor = PresetActor(result_latent_action_plan)
-
     rng, key = jax.random.split(key)
     actor, (costs, big_active_inds) = make_optimized_actions(
         rng,

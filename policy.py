@@ -137,7 +137,7 @@ def make_optimized_actions(
             rng,
         )
 
-        column_norms = jnp.linalg.norm(act_grad, ord=2, axis=0)
+        column_norms = jnp.linalg.norm(act_grad, ord=2, axis=-1)
         max_column_norm_i = jnp.argmax(column_norms)
 
         new_plan_column = (
