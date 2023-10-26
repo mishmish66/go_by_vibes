@@ -140,9 +140,12 @@ def make_optimized_actions(
         column_norms = jnp.linalg.norm(act_grad, ord=2, axis=0)
         max_column_norm_i = jnp.argmax(column_norms)
 
-        next_plan = current_plan.at[max_column_norm_i].set(
-            big_step_size * act_grad[max_column_norm_i]
+        new_plan_column = (
+            current_plan[max_column_norm_i]
+            - big_step_size * act_grad[max_column_norm_i]
         )
+
+        next_plan = current_plan.at[max_column_norm_i].set(new_plan_column)
         return next_plan, (cost, max_column_norm_i)
 
     def small_scanf(current_plan, key):
