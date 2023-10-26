@@ -115,7 +115,6 @@ class Finger:
     @classmethod
     def host_make_video(cls, states, env_config: EnvConfig, fps=24):
         stride = int(1 / fps / env_config.dt)
-        print(f"states shape: {states.shape}")
 
         frames = []
         next_state_i = 0
@@ -133,9 +132,9 @@ class Finger:
         fps = 24
         video_array = cls.host_make_video(states, env_config, fps)
 
-        print(f"Video shape: {video_array.shape}")
-
         wandb.log({name: wandb.Video(video_array, fps=fps)})
+        
+        print(f"Sent video {name}")
 
     @classmethod
     def make_wandb_sender(cls, video_name="video"):
