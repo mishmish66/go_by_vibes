@@ -53,15 +53,18 @@ def eval_log_gaussian(gaussian, point):
 
 
 def loss_forward(
-    inferred_latent_states_prime,
+    inferred_latent_states_prime_gauss_params,
     gt_next_latent_states,
+    inferred_state_mask,
 ):
-    diffs = inferred_latent_states_prime - gt_next_latent_states
+    log_probs = jax.vmap(
+        eval_log_gaussian,
+        (0, 0),
+    )(inferred_latent_states_prime_gauss_params, gt_next_latent_states)
 
-    diff_norms = jnp.linalg.norm(diffs, ord=1, axis=-1)
-    log_diff_norms = jnp.log(diff_norms + 1e-6)
-
-    return jnp.mean(log_diff_norms)
+    relevant_log_probs = log_probs * inferred_state_mask
+    
+    return jnp.mean(-relevant_log_probs)
 
 
 def loss_reconstruction(
@@ -318,7 +321,7 @@ def composed_random_index_losses(
 
     # Evaluate the forward loss
     forward_loss = loss_forward(
-        inferred_latent_states_prime_sampled, gt_next_latent_states
+        latent_states_prime_gaussians, gt_next_latent_states, inferred_next_state_mask
     )
 
     state_prime_diffs = inferred_latent_states_prime_sampled - gt_next_latent_states
