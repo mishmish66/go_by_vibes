@@ -300,7 +300,7 @@ def do_rollout(carry_pack, _):
     rng, key = jax.random.split(key)
     jax.lax.cond(rollout_i % 16 == 0, eval_actor, lambda _: None, rng)
 
-    send_random_video(jnp.nan_to_num(bup_states[0]), env_config)
+    # send_random_video(jnp.nan_to_num(bup_states[0]), env_config)
 
     # from jax import config
     # config.update("jax_disable_jit", True)
