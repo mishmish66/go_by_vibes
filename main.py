@@ -94,7 +94,7 @@ os.makedirs(checkpoint_dir)
 checkpointer = ocp.PyTreeCheckpointer()
 
 learning_rate = float(1.0e-4)
-every_k = 1
+every_k = 4
 
 env_cls = Finger
 
@@ -125,9 +125,9 @@ vibe_config = TrainConfig.init(
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
     seed=seed,
-    rollouts=256,
-    epochs=128,
-    batch_size=32,
+    rollouts=2048,
+    epochs=256,
+    batch_size=128,
     every_k=every_k,
     traj_per_rollout=1024,
     rollout_length=512,
@@ -264,24 +264,6 @@ def do_rollout(carry_pack, _):
 
         return rollout_result
 
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
-    conf_states, conf_actions = jax.vmap(collect_conf_rollout)(
-        rngs,
-    )
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
-    rng_states, rng_actions = jax.vmap(collect_rng_rollout)(
-        rngs,
-    )
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
-    rng_conf_states, rng_conf_actions = jax.vmap(collect_rng_conf_rollout)(
-        rngs,
-    )
-
     # make backup rollouts to swap for nans
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
@@ -289,53 +271,36 @@ def do_rollout(carry_pack, _):
         rngs,
     )
 
-    states = jnp.concatenate([conf_states, rng_conf_states, rng_states], axis=0)
-    actions = jnp.concatenate([conf_actions, rng_conf_actions, rng_actions], axis=0)
-
-    traj_has_nan = jnp.logical_or(
-        jnp.logical_or(
-            jnp.any(jnp.isnan(states), axis=(-1, -2)),
-            jnp.any(jnp.isnan(actions), axis=(-1, -2)),
-        ),
-        jnp.logical_or(
-            jnp.any(jnp.abs(states) > 1e4, axis=(-1, -2)),
-            jnp.any(jnp.abs(actions) > 1e4, axis=(-1, -2)),
-        ),
-    )
-
-    info = Infos.init()
-    info = info.add_plain_info("rollout traj nan portion", jnp.mean(traj_has_nan))
-
-    states = jnp.where(traj_has_nan[..., None, None], bup_states, states)
-    actions = jnp.where(traj_has_nan[..., None, None], bup_actions, actions)
-
-    info.dump_to_wandb()
+    states = bup_states
+    actions = bup_actions
 
     rollout_result = (states, actions)
+    
+    def eval_actor(key):
 
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, 32)
+        (eval_states, _), infos = jax.vmap(
+            evaluate_actor, in_axes=(0, None, None, None, None)
+        )(
+            rngs,
+            start_state,
+            env_cls,
+            vibe_state,
+            vibe_config,
+        )
+
+        rng, key = jax.random.split(key)
+        random_traj = jax.random.choice(rng, eval_states, axis=0)
+        send_actor_video(random_traj, env_config)
+        
+        infos.dump_to_wandb()
+        infos.dump_to_console()
+    
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, 32)
-    (eval_states, _), infos = jax.vmap(
-        evaluate_actor, in_axes=(0, None, None, None, None)
-    )(
-        rngs,
-        start_state,
-        env_cls,
-        vibe_state,
-        vibe_config,
-    )
+    jax.lax.cond(rollout_i % 16 == 0, eval_actor, lambda _: None, rng)
 
-    rng, key = jax.random.split(key)
-    random_traj = jax.random.choice(rng, eval_states, axis=0)
-
-    send_actor_video(random_traj, env_config)
-
-    infos.dump_to_wandb()
-    infos.dump_to_console()
-
-    send_random_video(jnp.nan_to_num(rng_states[0]), env_config)
-    send_min_conf_video(jnp.nan_to_num(conf_states[0]), env_config)
-    send_rng_conf_video(jnp.nan_to_num(rng_conf_states[0]), env_config)
+    send_random_video(jnp.nan_to_num(bup_states[0]), env_config)
 
     # from jax import config
     # config.update("jax_disable_jit", True)
