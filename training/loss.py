@@ -109,10 +109,12 @@ def loss_disperse(
 def loss_condense(
     latent_actions,
 ):
-    diffs = latent_actions[None, ...] - latent_actions[:, None, ...]
-    diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
+    target_radius = 1.0
+    latent_action_rads = jnp.linalg.norm(latent_actions, ord=1, axis=-1)
+    
+    latent_action_rad_violations = jnp.maximum(latent_action_rads - target_radius, 0)
 
-    return jnp.mean(diff_mags)
+    return jnp.mean(jnp.log(latent_action_rad_violations + 1e-6))
 
 
 def composed_whole_traj_losses(
@@ -449,17 +451,17 @@ class Losses:
             train_config.forward_gate_center,
         )
         smoothness_gate = make_gate_value(
-            self.reconstruction_loss,
+            self.forward_loss,
             train_config.smoothness_gate_sharpness,
             train_config.smoothness_gate_center,
         )
         dispersion_gate = make_gate_value(
-            self.reconstruction_loss,
+            self.smoothness_loss,
             train_config.dispersion_gate_sharpness,
             train_config.dispersion_gate_center,
         )
         condensation_gate = make_gate_value(
-            self.reconstruction_loss,
+            self.smoothness_loss,
             train_config.condensation_gate_sharpness,
             train_config.condensation_gate_center,
         )
