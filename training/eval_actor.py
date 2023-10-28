@@ -76,15 +76,6 @@ def evaluate_actor(
         )[:-1]
 
         return latent_traj_cost_func(key, latent_states, latent_actions)
-
-    rng, key = jax.random.split(key)
-    initial_random_guess = make_random_traj(
-        rng,
-        start_state,
-        vibe_state,
-        vibe_config,
-        env_cls,
-    )
     
     rng, key = jax.random.split(key)
     optimizer_actor, optimized_actions, (costs, big_active_inds) = make_optimize_actor(

@@ -200,7 +200,7 @@ def do_rollout(carry_pack, _):
 
     def collect_conf_rollout(key):
         rng, key = jax.random.split(key)
-        actor = make_target_conf_policy(
+        actor, init_carry = make_target_conf_policy(
             rng,
             start_state,
             vibe_state,
@@ -212,7 +212,7 @@ def do_rollout(carry_pack, _):
         rollout_result = collect_rollout(
             start_state,
             actor,
-            None,
+            init_carry,
             env_cls,
             vibe_state,
             vibe_config,
@@ -223,7 +223,7 @@ def do_rollout(carry_pack, _):
 
     def collect_rng_conf_rollout(key):
         rng, key = jax.random.split(key)
-        conf_actor = make_target_conf_policy(
+        conf_actor, init_carry = make_target_conf_policy(
             rng,
             start_state,
             vibe_state,
@@ -241,7 +241,7 @@ def do_rollout(carry_pack, _):
         rollout_result = collect_rollout(
             start_state,
             actor,
-            random_action(rng1, vibe_config.env_config.action_bounds),
+            (init_carry, random_action(rng1, vibe_config.env_config.action_bounds)),
             env_cls,
             vibe_state,
             vibe_config,
