@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from .infos import Infos
 
-from policy import random_policy, make_optimized_actions
+from policy import random_policy, make_optimize_actor
 
 from .rollout import collect_rollout
 
@@ -78,31 +78,16 @@ def evaluate_actor(
         return latent_traj_cost_func(key, latent_states, latent_actions)
 
     rng, key = jax.random.split(key)
-    loc_random_policy = jax.tree_util.Partial(random_policy)
-    random_states, random_actions = collect_rollout(
+    initial_random_guess = make_random_traj(
+        rng,
         start_state,
-        loc_random_policy,
-        None,
-        env_cls,
         vibe_state,
         vibe_config,
-        rng,
+        env_cls,
     )
-
+    
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, random_states.shape[0])
-    latent_random_states = jax.vmap(encode_state, (0, 0, None, None))(
-        rngs, random_states, vibe_state, vibe_config
-    )
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, random_actions.shape[0])
-    latent_random_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
-        rngs, random_actions, latent_random_states, vibe_state, vibe_config
-    )
-
-    rng, key = jax.random.split(key)
-    actor, (costs, big_active_inds) = make_optimized_actions(
+    optimizer_actor, optimized_actions, (costs, big_active_inds) = make_optimize_actor(
         rng,
         start_state,
         latent_action_plan_cost_func,
@@ -110,12 +95,12 @@ def evaluate_actor(
         vibe_config,
         env_cls,
     )
-
+    
     rng, key = jax.random.split(key)
     result_states, result_actions = collect_rollout(
         start_state,
-        actor,
-        None,
+        optimizer_actor,
+        optimized_actions,
         env_cls,
         vibe_state,
         vibe_config,
@@ -128,7 +113,7 @@ def evaluate_actor(
     info = info.add_plain_info("final_cost", final_cost)
     info = info.add_plain_info("starting expected cost", costs[0])
     info = info.add_plain_info("mid expected cost", costs[costs.shape[0] // 2])
-    
+
     info = info.add_plain_info("big active inds", big_active_inds)
 
     min_idx = jnp.argmin(costs)

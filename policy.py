@@ -108,24 +108,48 @@ class PresetActor:
         return action, carry
 
 
-def make_optimized_actions(
+def make_random_traj(
     key,
     start_state,
+    vibe_state,
+    vibe_config,
+    env_cls,
+):
+    
+    rng, key = jax.random.split(key)
+    random_states, random_actions = collect_rollout(
+        start_state,
+        random_policy,
+        None,
+        env_cls,
+        vibe_state,
+        vibe_config,
+        rng,
+    )
+
+    return random_states, random_actions
+
+# def make_optimized_actions(
+def optimize_actions(
+    key,
+    start_state,
+    initial_guess,
     cost_func,
     vibe_state,
     vibe_config: TrainConfig,
     env_cls,
+    start_state_idx=0,
+    big_step_size=0.5,
+    big_steps=512,
+    small_step_size=0.005,
+    small_steps=512,
 ):
     horizon = vibe_config.rollout_length
+    
+    causal_mask = make_mask(horizon, start_state_idx)
 
     rng, key = jax.random.split(key)
     latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
-
-    big_step_size = 0.5
-    big_steps = 512
-
-    small_step_size = 0.005
-    small_steps = 512
 
     def big_scanf(current_plan, key):
         rng, key = jax.random.split(key)
@@ -136,10 +160,12 @@ def make_optimized_actions(
             vibe_config,
             rng,
         )
+        
+        act_grad_future = einsum("...ij,...j->...i", act_grad, causal_mask)
 
-        column_norms = jnp.linalg.norm(act_grad, ord=1, axis=-1)
+        column_norms = jnp.linalg.norm(act_grad_future, ord=1, axis=-1)
         max_column_idx = jnp.argmax(column_norms)
-        column_grad = act_grad[max_column_idx]
+        column_grad = act_grad_future[max_column_idx]
         column_norm = column_norms[max_column_idx]
         normalized_column_grad = column_grad / column_norm
         
@@ -158,36 +184,16 @@ def make_optimized_actions(
             vibe_config,
             rng,
         )
+        
+        act_grad_future = einsum("...ij,...j->...i", act_grad, causal_mask)
 
-        next_plan = current_plan - small_step_size * act_grad
+        next_plan = current_plan - small_step_size * act_grad_future
         return next_plan, cost
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, horizon)
-
-    rng, key = jax.random.split(key)
-    random_states, random_actions = collect_rollout(
-        start_state,
-        random_policy,
-        None,
-        env_cls,
-        vibe_state,
-        vibe_config,
-        rng,
-    )
-
-    latent_random_states = jax.vmap(encode_state, (0, 0, None, None))(
-        rngs, random_states, vibe_state, vibe_config
-    )
-
-    latent_random_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
-        rngs, random_actions, latent_random_states, vibe_state, vibe_config
-    )
 
     rng, key = jax.random.split(key)
     scan_rng = jax.random.split(rng, big_steps)
     coarse_latent_action_sequence, (big_costs, big_active_inds) = jax.lax.scan(
-        big_scanf, latent_random_actions, scan_rng
+        big_scanf, initial_guess, scan_rng
     )
 
     rng, key = jax.random.split(key)
@@ -198,7 +204,72 @@ def make_optimized_actions(
 
     costs = jnp.concatenate([big_costs, small_costs], axis=0)
 
-    return PresetActor(fine_latent_action_sequence), (costs, big_active_inds)
+    return fine_latent_action_sequence, (costs, big_active_inds)
+
+def make_optimize_actor(
+    key,
+    start_state,
+    cost_func,
+    vibe_state,
+    vibe_config: TrainConfig,
+    env_cls,
+    big_step_size=0.5,
+    big_steps=512,
+    small_step_size=0.005,
+    small_steps=512,
+):
+    rng, key = jax.random.split(key)
+    initial_guess = make_random_traj(
+        rng,
+        start_state,
+        vibe_state,
+        vibe_config,
+        env_cls,
+    )
+    
+    rng, key = jax.random.split(key)
+    optimized_actions, (costs, big_active_inds) = optimize_actions(
+        rng,
+        start_state,
+        initial_guess,
+        cost_func,
+        vibe_state,
+        vibe_config,
+        env_cls,
+        0,
+        big_step_size,
+        big_steps,
+        small_step_size,
+        small_steps,
+    )
+    
+    def optimizer_actor(
+        key,
+        state,
+        i,
+        carry,
+        vibe_state,
+        vibe_config,
+    ):
+        last_guess = carry
+        
+        rng, key = jax.random.split(key)
+        next_guess = optimize_actions(
+            rng,
+            state,
+            last_guess,
+            cost_func,
+            vibe_state,
+            vibe_config,
+            env_cls,
+            start_state_idx=i,
+            big_steps=0,
+            small_steps=8,
+        )
+        
+        return next_guess[i], next_guess
+    
+    return optimizer_actor, optimized_actions, (costs, big_active_inds)
 
 
 def make_target_conf_policy(
@@ -233,7 +304,7 @@ def make_target_conf_policy(
 
         return jnp.mean(uncertainty_error)
 
-    return make_optimized_actions(
+    return make_optimize_actor(
         key,
         start_state,
         cost_func,
