@@ -451,17 +451,17 @@ class Losses:
             train_config.forward_gate_center,
         )
         smoothness_gate = make_gate_value(
-            self.forward_loss,
+            self.reconstruction_loss,
             train_config.smoothness_gate_sharpness,
             train_config.smoothness_gate_center,
         )
         dispersion_gate = make_gate_value(
-            self.smoothness_loss,
+            self.reconstruction_loss,
             train_config.dispersion_gate_sharpness,
             train_config.dispersion_gate_center,
         )
         condensation_gate = make_gate_value(
-            self.smoothness_loss,
+            self.reconstruction_loss,
             train_config.condensation_gate_sharpness,
             train_config.condensation_gate_center,
         )

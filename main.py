@@ -138,16 +138,16 @@ vibe_config = TrainConfig.init(
     dispersion_weight=10.0,
     inverse_reconstruction_gate_sharpness=1,
     inverse_forward_gate_sharpness=1,
-    inverse_reconstruction_gate_center=-6,
-    inverse_forward_gate_center=-6,
+    inverse_reconstruction_gate_center=-7,
+    inverse_forward_gate_center=-7,
     forward_gate_sharpness=1,
     smoothness_gate_sharpness=1,
     dispersion_gate_sharpness=1,
     condensation_gate_sharpness=1,
     forward_gate_center=-2,
     smoothness_gate_center=-3,
-    dispersion_gate_center=-9,
-    condensation_gate_center=-9,
+    dispersion_gate_center=-3,
+    condensation_gate_center=-3,
 )
 
 rng, key = jax.random.split(key)
