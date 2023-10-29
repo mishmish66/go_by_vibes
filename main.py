@@ -313,25 +313,26 @@ def do_rollout(carry_pack, _):
 
     rollout_result = (states, actions)
 
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, 32)
-    (eval_states, _), infos = jax.vmap(
-        evaluate_actor, in_axes=(0, None, None, None, None)
-    )(
-        rngs,
-        start_state,
-        env_cls,
-        vibe_state,
-        vibe_config,
-    )
+    def eval_actor(key, vibe_state, vibe_config):
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, 32)
+        (eval_states, _), infos = jax.vmap(
+            evaluate_actor, in_axes=(0, None, None, None, None)
+        )(
+            rngs,
+            start_state,
+            env_cls,
+            vibe_state,
+            vibe_config,
+        )
 
-    rng, key = jax.random.split(key)
-    random_traj = jax.random.choice(rng, eval_states, axis=0)
+        rng, key = jax.random.split(key)
+        random_traj = jax.random.choice(rng, eval_states, axis=0)
 
-    send_actor_video(random_traj, env_config)
+        send_actor_video(random_traj, env_config)
 
-    infos.dump_to_wandb()
-    infos.dump_to_console()
+        infos.dump_to_wandb()
+        infos.dump_to_console()
 
     send_random_video(jnp.nan_to_num(rng_states[0]), env_config)
     send_min_conf_video(jnp.nan_to_num(conf_states[0]), env_config)
@@ -356,6 +357,12 @@ def do_rollout(carry_pack, _):
 
         jax.experimental.host_callback.id_tap(
             lambda epoch, _: print(f"Epoch {epoch}"), epoch
+        )
+
+        jax.lax.cond(
+            epoch % 128 == 0,
+            lambda _: eval_actor(key, vibe_state, vibe_config),
+            lambda _: None,
         )
 
         def process_batch(carry, rollout_result_batch):
