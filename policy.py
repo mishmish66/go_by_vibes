@@ -276,8 +276,8 @@ def make_optimize_actor(
             vibe_config,
             env_cls,
             start_state_idx=i,
-            big_steps=0,
-            small_steps=8,
+            big_steps=16,
+            small_steps=48,
         )[0]
 
         latent_action = next_guess[i]
@@ -300,7 +300,7 @@ def make_target_conf_policy(
     vibe_state,
     vibe_config: TrainConfig,
     env_cls,
-    target_uncertainty=5e-6,
+    target_uncertainty=1e-7,
 ):
     def cost_func(
         latent_actions,
