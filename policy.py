@@ -300,7 +300,7 @@ def make_target_conf_policy(
     vibe_state,
     vibe_config: TrainConfig,
     env_cls,
-    target_uncertainty=2.5e-4,
+    target_uncertainty=5e-6,
 ):
     def cost_func(
         latent_actions,
