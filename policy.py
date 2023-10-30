@@ -67,12 +67,12 @@ def random_repeat_policy(
     rng, key = jax.random.split(key)
     rand = jax.random.uniform(rng)
 
-    next_action = jax.lax.cond(
-        rand < repeat_prob,
-        lambda _: carry,
-        lambda _: random_action(rng, vibe_config.env_config.action_bounds),
-        operand=None,
-    )
+    repeat = rand < repeat_prob
+
+    next_action = carry * repeat + random_action(
+        rng, vibe_config.env_config.action_bounds
+    ) * (1 - repeat)
+    
     return next_action, next_action
 
 
@@ -349,10 +349,14 @@ def make_piecewise_actor(a, b, first_b_idx):
         def b_case(a_carry, b_carry):
             result, b_carry = b(key, state, i, b_carry, vibe_state, vibe_config)
             return result, (a_carry, b_carry)
-
-        result, (a_carry, b_carry) = jax.lax.cond(
-            i < first_b_idx, a_case, b_case, a_carry, b_carry
-        )
+        
+        a_or_b = i < first_b_idx
+        
+        a_result, new_a_carry = a(key, state, i, a_carry, vibe_state, vibe_config)
+        b_result, new_b_carry = b(key, state, i, b_carry, vibe_state, vibe_config)
+        
+        result = a_or_b * a_result + (1 - a_or_b) * b_result
+        
         return result, (a_carry, b_carry)
 
     return actor
