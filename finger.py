@@ -1,6 +1,6 @@
 import os
 
-os.environ["MUJOCO_GL"] = "osmesa"
+os.environ["MUJOCO_GL"] = "EGL"
 
 import jax
 from jax import numpy as jnp
@@ -144,7 +144,9 @@ class Finger:
             cls.host_send_wandb_video(video_name, states, env_config)
 
         def sender(states, env_config: EnvConfig):
-            id_tap(sender_for_id_tap, (states, env_config))
+            # Modified to not use id_tap so I can use the EGL backend when not jit compiling
+            sender_for_id_tap((states, env_config), None)
+            # id_tap(sender_for_id_tap, (states, env_config))
 
         return sender
 

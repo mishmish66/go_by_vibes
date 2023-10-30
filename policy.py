@@ -218,6 +218,8 @@ def make_optimize_actor(
     big_steps=512,
     small_step_size=0.005,
     small_steps=512,
+    big_post_steps=16,
+    small_post_steps=48,
 ):
     rng, key = jax.random.split(key)
     random_traj_states, random_traj_actions = make_random_traj(
@@ -276,8 +278,8 @@ def make_optimize_actor(
             vibe_config,
             env_cls,
             start_state_idx=i,
-            big_steps=16,
-            small_steps=48,
+            big_steps=big_post_steps,
+            small_steps=small_post_steps,
         )[0]
 
         latent_action = next_guess[i]
@@ -333,6 +335,8 @@ def make_target_conf_policy(
         vibe_state,
         vibe_config,
         env_cls,
+        big_post_steps=0,
+        small_post_steps=8,
     )
 
     return actor, init_carry

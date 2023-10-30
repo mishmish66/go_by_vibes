@@ -285,24 +285,28 @@ def do_rollout(carry_pack, _):
     #     infos.dump_to_wandb()
     #     infos.dump_to_console()
 
+    print("Collecting conf rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
     conf_states, conf_actions = jax.vmap(collect_conf_rollout)(
         rngs,
     )
 
+    print("Collecting rng conf rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
     rng_states, rng_actions = jax.vmap(collect_rng_rollout)(
         rngs,
     )
 
+    print("Collecting rng rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
     rng_conf_states, rng_conf_actions = jax.vmap(collect_rng_conf_rollout)(
         rngs,
     )
 
+    print("Collecting backup rollouts")
     # make backup rollouts to swap for nans
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
@@ -439,7 +443,7 @@ def do_rollout(carry_pack, _):
         ) = carry_pack
         
         # Eval the actor every n epochs
-        
+        print("Evaluating actor")
         rng, key = jax.random.split(key)
         rngs = jax.random.split(rng, 32)
         (eval_states, _), infos = jax.vmap(
@@ -474,9 +478,17 @@ def do_rollout(carry_pack, _):
     jax.experimental.host_callback.id_tap(
         lambda rollout, _: print(f"Rollout {rollout}"), rollout_i
     )
-    (_, _, vibe_state), infos = jax.lax.scan(
-        do_epoch_set, init, None, length=(vibe_config.epochs // actor_eval_stride)
-    )
+    
+    # Switching to a for loop to try and speed up compilation
+    carry = init
+    for i in range(vibe_config.epochs // actor_eval_stride):
+        carry, _ = do_epoch_set(carry, None)
+    
+    (_, _, vibe_state) = carry
+    
+    # (_, _, vibe_state), infos = jax.lax.scan(
+    #     do_epoch_set, init, None, length=(vibe_config.epochs // actor_eval_stride)
+    # )
 
     # jax.experimental.host_callback.id_tap(dump_infos_for_tap, (infos, rollout_i))
 
@@ -486,15 +498,14 @@ def do_rollout(carry_pack, _):
 rng, key = jax.random.split(key)
 init = (rng, jnp.array(0), vibe_state)
 
-(_, _, vibe_state), _ = jax.lax.scan(
-    do_rollout, init, None, length=vibe_config.rollouts
-)
+# Replacing the scan with a for loop to try and speed up compilation
+carry = init
+for i in range(vibe_config.rollouts):
+    carry, _ = do_rollout(carry, None)
+
+# (_, _, vibe_state), _ = jax.lax.scan(
+#     do_rollout, init, None, length=vibe_config.rollouts
+# )
 
 
 jax.debug.print("Done!")
-
-# for i in range(16):
-#     ani = animate(rollout_result[0][i, ..., :7], shape_config=shape_config, dt=dt)
-#     plt.show()
-
-# pass
