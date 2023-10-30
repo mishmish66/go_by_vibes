@@ -126,7 +126,7 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=256,
-    epochs=1024,
+    epochs=4096,
     batch_size=128,
     every_k=every_k,
     traj_per_rollout=1024,
@@ -264,27 +264,6 @@ def do_rollout(carry_pack, _):
 
         return rollout_result
     
-    # def eval_actor(key, vibe_state, vibe_config):
-    #     rng, key = jax.random.split(key)
-    #     rngs = jax.random.split(rng, 32)
-    #     (eval_states, _), infos = jax.vmap(
-    #         evaluate_actor, in_axes=(0, None, None, None, None)
-    #     )(
-    #         rngs,
-    #         start_state,
-    #         env_cls,
-    #         vibe_state,
-    #         vibe_config,
-    #     )
-
-    #     rng, key = jax.random.split(key)
-    #     random_traj = jax.random.choice(rng, eval_states, axis=0)
-
-    #     send_actor_video(random_traj, env_config)
-
-    #     infos.dump_to_wandb()
-    #     infos.dump_to_console()
-
     print("Collecting conf rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
@@ -433,7 +412,7 @@ def do_rollout(carry_pack, _):
 
         # jax.profiler.save_device_memory_profile("memory.prof")
     
-    actor_eval_stride = 64
+    actor_eval_stride = 1024
     
     def do_epoch_set(carry_pack, _):
         (
