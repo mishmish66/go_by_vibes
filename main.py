@@ -359,12 +359,6 @@ def do_rollout(carry_pack, _):
             lambda epoch, _: print(f"Epoch {epoch}"), epoch
         )
 
-        jax.lax.cond(
-            epoch % 128 == 0,
-            lambda: eval_actor(key, vibe_state, vibe_config),
-            lambda: None,
-        )
-
         def process_batch(carry, rollout_result_batch):
             (
                 key,
