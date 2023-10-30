@@ -263,6 +263,27 @@ def do_rollout(carry_pack, _):
         )
 
         return rollout_result
+    
+    # def eval_actor(key, vibe_state, vibe_config):
+    #     rng, key = jax.random.split(key)
+    #     rngs = jax.random.split(rng, 32)
+    #     (eval_states, _), infos = jax.vmap(
+    #         evaluate_actor, in_axes=(0, None, None, None, None)
+    #     )(
+    #         rngs,
+    #         start_state,
+    #         env_cls,
+    #         vibe_state,
+    #         vibe_config,
+    #     )
+
+    #     rng, key = jax.random.split(key)
+    #     random_traj = jax.random.choice(rng, eval_states, axis=0)
+
+    #     send_actor_video(random_traj, env_config)
+
+    #     infos.dump_to_wandb()
+    #     infos.dump_to_console()
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
@@ -312,27 +333,6 @@ def do_rollout(carry_pack, _):
     info.dump_to_wandb()
 
     rollout_result = (states, actions)
-
-    def eval_actor(key, vibe_state, vibe_config):
-        rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, 32)
-        (eval_states, _), infos = jax.vmap(
-            evaluate_actor, in_axes=(0, None, None, None, None)
-        )(
-            rngs,
-            start_state,
-            env_cls,
-            vibe_state,
-            vibe_config,
-        )
-
-        rng, key = jax.random.split(key)
-        random_traj = jax.random.choice(rng, eval_states, axis=0)
-
-        send_actor_video(random_traj, env_config)
-
-        infos.dump_to_wandb()
-        infos.dump_to_console()
 
     send_random_video(jnp.nan_to_num(rng_states[0]), env_config)
     send_min_conf_video(jnp.nan_to_num(conf_states[0]), env_config)
@@ -434,9 +434,45 @@ def do_rollout(carry_pack, _):
         return (key, epoch + 1, vibe_state), loss_infos
 
         # jax.profiler.save_device_memory_profile("memory.prof")
+    
+    actor_eval_stride = 64
+    
+    def do_epoch_set(carry_pack, _):
+        (
+            key,
+            epoch,
+            vibe_state,
+        ) = carry_pack
+        
+        # Eval the actor every n epochs
+        
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, 32)
+        (eval_states, _), infos = jax.vmap(
+            evaluate_actor, in_axes=(0, None, None, None, None)
+        )(
+            rngs,
+            start_state,
+            env_cls,
+            vibe_state,
+            vibe_config,
+        )
 
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.epochs)
+        rng, key = jax.random.split(key)
+        random_traj = jax.random.choice(rng, eval_states, axis=0)
+
+        send_actor_video(random_traj, env_config)
+
+        infos.dump_to_wandb()
+        infos.dump_to_console()
+        
+        rng, key = jax.random.split(key)
+        init = (rng, epoch, vibe_state)
+        (_, epoch, vibe_state), infos = jax.lax.scan(
+            do_epoch, init, None, length=actor_eval_stride
+        )
+        
+        return (key, epoch, vibe_state), infos
 
     rng, key = jax.random.split(key)
     init = (rng, 0, vibe_state)
@@ -444,9 +480,8 @@ def do_rollout(carry_pack, _):
     jax.experimental.host_callback.id_tap(
         lambda rollout, _: print(f"Rollout {rollout}"), rollout_i
     )
-
     (_, _, vibe_state), infos = jax.lax.scan(
-        do_epoch, init, None, length=vibe_config.epochs
+        do_epoch_set, init, None, length=(vibe_config.epochs // actor_eval_stride)
     )
 
     # jax.experimental.host_callback.id_tap(dump_infos_for_tap, (infos, rollout_i))
