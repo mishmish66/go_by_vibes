@@ -72,7 +72,7 @@ def random_repeat_policy(
     next_action = carry * repeat + random_action(
         rng, vibe_config.env_config.action_bounds
     ) * (1 - repeat)
-    
+
     return next_action, next_action
 
 
@@ -335,13 +335,31 @@ def make_target_conf_policy(
         vibe_state,
         vibe_config,
         env_cls,
-        big_steps=64,
+        big_steps=256,
         small_steps=64,
         big_post_steps=0,
         small_post_steps=8,
     )
 
-    return actor, init_carry
+    def noised_actor(
+        key,
+        state,
+        i,
+        carry,
+        vibe_state,
+        vibe_config,
+    ):
+        rng, key = jax.random.split(key)
+        action, next_guess = actor(rng, state, i, carry, vibe_state, vibe_config)
+
+        rng, key = jax.random.split(key)
+        noisy_action = sample_gaussian(
+            rng, jnp.concatenate([action, jnp.ones_like(action) * 1e-2])
+        )
+
+        return noisy_action, next_guess
+
+    return noised_actor, init_carry
 
 
 def make_piecewise_actor(a, b, first_b_idx):
@@ -355,14 +373,14 @@ def make_piecewise_actor(a, b, first_b_idx):
         def b_case(a_carry, b_carry):
             result, b_carry = b(key, state, i, b_carry, vibe_state, vibe_config)
             return result, (a_carry, b_carry)
-        
+
         a_or_b = i < first_b_idx
-        
+
         a_result, new_a_carry = a(key, state, i, a_carry, vibe_state, vibe_config)
         b_result, new_b_carry = b(key, state, i, b_carry, vibe_state, vibe_config)
-        
+
         result = a_or_b * a_result + (1 - a_or_b) * b_result
-        
+
         return result, (a_carry, b_carry)
 
     return actor

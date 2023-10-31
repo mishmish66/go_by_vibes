@@ -93,7 +93,7 @@ os.makedirs(checkpoint_dir)
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(1e-4)
+learning_rate = float(5e-5)
 every_k = 4
 
 env_cls = Finger
@@ -105,8 +105,8 @@ schedule = optax.join_schedules(
         optax.cosine_onecycle_schedule(
             4096,
             peak_value=learning_rate,
-            pct_start=0.3,
-            div_factor=2.5,
+            pct_start=0.125,
+            div_factor=1.0,
             final_div_factor=10.0,
         ),
         optax.linear_schedule(learning_rate / 25, learning_rate / 100, 16_000),
