@@ -93,7 +93,7 @@ os.makedirs(checkpoint_dir)
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(2.5e-5)
+learning_rate = float(1e-4)
 every_k = 4
 
 env_cls = Finger
@@ -132,7 +132,7 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=256,
-    epochs=1024,
+    epochs=256,
     batch_size=128,
     every_k=every_k,
     traj_per_rollout=512,
@@ -426,28 +426,29 @@ def do_rollout(carry_pack, _):
             epoch,
             vibe_state,
         ) = carry_pack
+        
+        if (rollout_i % 4 == 0):
+            # Eval the actor every n epochs
+            print("Evaluating actor")
+            rng, key = jax.random.split(key)
+            rngs = jax.random.split(rng, 2)
+            (eval_states, _), infos = jax.vmap(
+                evaluate_actor, in_axes=(0, None, None, None, None)
+            )(
+                rngs,
+                start_state,
+                env_cls,
+                vibe_state,
+                vibe_config,
+            )
 
-        # Eval the actor every n epochs
-        print("Evaluating actor")
-        rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, 32)
-        (eval_states, _), infos = jax.vmap(
-            evaluate_actor, in_axes=(0, None, None, None, None)
-        )(
-            rngs,
-            start_state,
-            env_cls,
-            vibe_state,
-            vibe_config,
-        )
+            rng, key = jax.random.split(key)
+            random_traj = jax.random.choice(rng, eval_states, axis=0)
 
-        rng, key = jax.random.split(key)
-        random_traj = jax.random.choice(rng, eval_states, axis=0)
+            send_actor_video(random_traj, env_config)
 
-        send_actor_video(random_traj, env_config)
-
-        infos.dump_to_wandb()
-        infos.dump_to_console()
+            infos.dump_to_wandb()
+            infos.dump_to_console()
 
         rng, key = jax.random.split(key)
         init = (rng, epoch, vibe_state)
@@ -466,7 +467,8 @@ def do_rollout(carry_pack, _):
 
     # Switching to a for loop to try and speed up compilation
     carry = init
-    for i in range(vibe_config.epochs // actor_eval_stride):
+    epoch_sets = max((vibe_config.epochs // actor_eval_stride), 1)
+    for i in range(epoch_sets):
         carry, _ = do_epoch_set(carry, None)
 
     (_, _, vibe_state) = carry
