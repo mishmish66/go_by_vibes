@@ -100,21 +100,27 @@ env_cls = Finger
 
 env_config = env_cls.get_config()
 
+schedule = optax.join_schedules(
+    [
+        optax.cosine_onecycle_schedule(
+            4096,
+            peak_value=learning_rate,
+            pct_start=0.1,
+            div_factor=2.5,
+            final_div_factor=10.0,
+        ),
+        optax.linear_schedule(learning_rate / 25, learning_rate / 100, 16_000),
+    ],
+    [16_000],
+)
+
 vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
     optimizer=optax.MultiSteps(
         optax.chain(
             optax.zero_nans(),
             optax.clip_by_global_norm(200.0),
-            optax.lion(
-                learning_rate=optax.cosine_onecycle_schedule(
-                    4096,
-                    peak_value=learning_rate,
-                    pct_start=0.1,
-                    div_factor=2.5,
-                    final_div_factor=10.0,
-                )
-            ),
+            optax.lion(learning_rate=schedule),
         ),
         every_k_schedule=every_k,
     ),
@@ -263,7 +269,7 @@ def do_rollout(carry_pack, _):
         )
 
         return rollout_result
-    
+
     print("Collecting conf rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
@@ -411,16 +417,16 @@ def do_rollout(carry_pack, _):
         return (key, epoch + 1, vibe_state), loss_infos
 
         # jax.profiler.save_device_memory_profile("memory.prof")
-    
+
     actor_eval_stride = 1024
-    
+
     def do_epoch_set(carry_pack, _):
         (
             key,
             epoch,
             vibe_state,
         ) = carry_pack
-        
+
         # Eval the actor every n epochs
         print("Evaluating actor")
         rng, key = jax.random.split(key)
@@ -442,13 +448,13 @@ def do_rollout(carry_pack, _):
 
         infos.dump_to_wandb()
         infos.dump_to_console()
-        
+
         rng, key = jax.random.split(key)
         init = (rng, epoch, vibe_state)
         (_, epoch, vibe_state), infos = jax.lax.scan(
             do_epoch, init, None, length=actor_eval_stride
         )
-        
+
         return (key, epoch, vibe_state), infos
 
     rng, key = jax.random.split(key)
@@ -457,14 +463,14 @@ def do_rollout(carry_pack, _):
     jax.experimental.host_callback.id_tap(
         lambda rollout, _: print(f"Rollout {rollout}"), rollout_i
     )
-    
+
     # Switching to a for loop to try and speed up compilation
     carry = init
     for i in range(vibe_config.epochs // actor_eval_stride):
         carry, _ = do_epoch_set(carry, None)
-    
+
     (_, _, vibe_state) = carry
-    
+
     # (_, _, vibe_state), infos = jax.lax.scan(
     #     do_epoch_set, init, None, length=(vibe_config.epochs // actor_eval_stride)
     # )
