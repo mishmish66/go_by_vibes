@@ -132,10 +132,10 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=256,
-    epochs=128,
+    epochs=256,
     batch_size=128,
     every_k=every_k,
-    traj_per_rollout=512,
+    traj_per_rollout=4096,
     rollout_length=512,
     reconstruction_weight=1.0,
     forward_weight=1.0,
@@ -427,7 +427,7 @@ def do_rollout(carry_pack, _):
             vibe_state,
         ) = carry_pack
 
-        if rollout_i % 4 == 0:
+        if rollout_i % 16 == 0:
             # Eval the actor every n epochs
             print("Evaluating actor")
             rng, key = jax.random.split(key)
