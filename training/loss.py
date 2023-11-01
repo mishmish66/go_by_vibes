@@ -63,7 +63,7 @@ def loss_forward(
     )(inferred_latent_states_prime_gauss_params, gt_next_latent_states)
 
     relevant_log_probs = log_probs * inferred_state_mask
-    
+
     return jnp.mean(-relevant_log_probs)
 
 
@@ -111,7 +111,7 @@ def loss_condense(
 ):
     target_radius = 1.0
     latent_action_rads = jnp.linalg.norm(latent_actions, ord=1, axis=-1)
-    
+
     latent_action_rad_violations = jnp.maximum(latent_action_rads - target_radius, 0)
 
     return jnp.mean(jnp.log(latent_action_rad_violations + 1e-6))
@@ -438,7 +438,7 @@ class Losses:
             train_config.inverse_reconstruction_gate_sharpness,
             train_config.inverse_reconstruction_gate_center,
         )
-        
+
         inverse_forward_gate = 1 - make_gate_value(
             self.forward_loss,
             train_config.inverse_forward_gate_sharpness,
@@ -455,15 +455,21 @@ class Losses:
             train_config.smoothness_gate_sharpness,
             train_config.smoothness_gate_center,
         )
-        dispersion_gate = make_gate_value(
-            self.smoothness_loss,
-            train_config.dispersion_gate_sharpness,
-            train_config.dispersion_gate_center,
+        dispersion_gate = (
+            make_gate_value(
+                self.smoothness_loss,
+                train_config.dispersion_gate_sharpness,
+                train_config.dispersion_gate_center,
+            )
+            * smoothness_gate
         )
-        condensation_gate = make_gate_value(
-            self.smoothness_loss,
-            train_config.condensation_gate_sharpness,
-            train_config.condensation_gate_center,
+        condensation_gate = (
+            make_gate_value(
+                self.smoothness_loss,
+                train_config.condensation_gate_sharpness,
+                train_config.condensation_gate_center,
+            )
+            * smoothness_gate
         )
 
         scaled_reconstruction_loss = (
@@ -479,7 +485,9 @@ class Losses:
         scaled_gated_reconstruction_loss = (
             scaled_reconstruction_loss * inverse_reconstruction_gate
         )
-        scaled_gated_forward_loss = scaled_forward_loss * forward_gate * inverse_forward_gate
+        scaled_gated_forward_loss = (
+            scaled_forward_loss * forward_gate * inverse_forward_gate
+        )
         scaled_gated_smoothness_loss = scaled_smoothness_loss * smoothness_gate
         scaled_gated_dispersion_loss = scaled_dispersion_loss * dispersion_gate
         scaled_gated_condensation_loss = scaled_condensation_loss * condensation_gate
@@ -500,7 +508,9 @@ class Losses:
         infos = infos.add_loss_info("dispersion_loss", scaled_dispersion_loss)
         infos = infos.add_loss_info("condensation_loss", scaled_condensation_loss)
 
-        infos = infos.add_plain_info("inverse_reconstruction_gate", inverse_reconstruction_gate)
+        infos = infos.add_plain_info(
+            "inverse_reconstruction_gate", inverse_reconstruction_gate
+        )
         infos = infos.add_plain_info("inverse_forward_gate", inverse_forward_gate)
         infos = infos.add_plain_info("forward_gate", forward_gate)
         infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
