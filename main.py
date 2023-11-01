@@ -132,7 +132,7 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=256,
-    epochs=256,
+    epochs=128,
     batch_size=128,
     every_k=every_k,
     traj_per_rollout=512,
@@ -270,6 +270,13 @@ def do_rollout(carry_pack, _):
 
         return rollout_result
 
+    print("Collecting rng rollouts")
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
+    rng_states, rng_actions = jax.vmap(collect_rng_rollout)(
+        rngs,
+    )
+
     print("Collecting conf rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
@@ -278,13 +285,6 @@ def do_rollout(carry_pack, _):
     )
 
     print("Collecting rng conf rollouts")
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
-    rng_states, rng_actions = jax.vmap(collect_rng_rollout)(
-        rngs,
-    )
-
-    print("Collecting rng rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
     rng_conf_states, rng_conf_actions = jax.vmap(collect_rng_conf_rollout)(
@@ -431,7 +431,7 @@ def do_rollout(carry_pack, _):
             # Eval the actor every n epochs
             print("Evaluating actor")
             rng, key = jax.random.split(key)
-            rngs = jax.random.split(rng, 2)
+            rngs = jax.random.split(rng, 32)
             (eval_states, _), infos = jax.vmap(
                 evaluate_actor, in_axes=(0, None, None, None, None)
             )(

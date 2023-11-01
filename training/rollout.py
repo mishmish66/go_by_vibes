@@ -28,6 +28,8 @@ def collect_rollout(
     vibe_config,
     key,
 ):
+    policy = jax.tree_util.Partial(policy)
+    
     # Collect a rollout of physics data
     def scanf(carry, _):
         state, key, i, policy_carry = carry
