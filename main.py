@@ -277,55 +277,9 @@ def do_rollout(carry_pack, _):
         rngs,
     )
 
-    # print("Collecting conf rollouts")
-    # rng, key = jax.random.split(key)
-    # rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
-    # conf_states, conf_actions = jax.vmap(collect_conf_rollout)(
-    #     rngs,
-    # )
-
-    # print("Collecting rng conf rollouts")
-    # rng, key = jax.random.split(key)
-    # rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
-    # rng_conf_states, rng_conf_actions = jax.vmap(collect_rng_conf_rollout)(
-    #     rngs,
-    # )
-
-    # print("Collecting backup rollouts")
-    # # make backup rollouts to swap for nans
-    # rng, key = jax.random.split(key)
-    # rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
-    # bup_states, bup_actions = jax.vmap(collect_rng_rollout)(
-    #     rngs,
-    # )
-
-    # states = jnp.concatenate([conf_states, rng_conf_states, rng_states], axis=0)
-    # actions = jnp.concatenate([conf_actions, rng_conf_actions, rng_actions], axis=0)
-
-    # traj_has_nan = jnp.logical_or(
-    #     jnp.logical_or(
-    #         jnp.any(jnp.isnan(states), axis=(-1, -2)),
-    #         jnp.any(jnp.isnan(actions), axis=(-1, -2)),
-    #     ),
-    #     jnp.logical_or(
-    #         jnp.any(jnp.abs(states) > 1e4, axis=(-1, -2)),
-    #         jnp.any(jnp.abs(actions) > 1e4, axis=(-1, -2)),
-    #     ),
-    # )
-
-    # info = Infos.init()
-    # info = info.add_plain_info("rollout traj nan portion", jnp.mean(traj_has_nan))
-
-    # states = jnp.where(traj_has_nan[..., None, None], bup_states, states)
-    # actions = jnp.where(traj_has_nan[..., None, None], bup_actions, actions)
-
-    # info.dump_to_wandb()
-
     rollout_result = (states, actions)
 
     send_random_video(jnp.nan_to_num(states[0]), env_config)
-    # send_min_conf_video(jnp.nan_to_num(conf_states[0]), env_config)
-    # send_rng_conf_video(jnp.nan_to_num(rng_conf_states[0]), env_config)
 
     # from jax import config
     # config.update("jax_disable_jit", True)
@@ -383,10 +337,6 @@ def do_rollout(carry_pack, _):
 
             jax.lax.cond(is_update_chunk, loss_infos.dump_to_wandb, lambda: None)
 
-            # jax.experimental.host_callback.id_tap(
-            #     dump_to_wandb_for_tap, (loss_infos, rollout_i, epoch, chunk_i)
-            # )
-
             return (key, chunk_i + 1, vibe_state), (msg, loss_infos)
 
         states_batched = einops.rearrange(
@@ -416,8 +366,6 @@ def do_rollout(carry_pack, _):
 
         return (key, epoch + 1, vibe_state), loss_infos
 
-        # jax.profiler.save_device_memory_profile("memory.prof")
-
     actor_eval_stride = min(1024, vibe_config.epochs)
 
     def do_epoch_set(carry_pack, _):
@@ -427,7 +375,7 @@ def do_rollout(carry_pack, _):
             vibe_state,
         ) = carry_pack
 
-        if rollout_i % 16 == 0:
+        if rollout_i % 4 == 0:
             # Eval the actor every n epochs
             print("Evaluating actor")
             rng, key = jax.random.split(key)
