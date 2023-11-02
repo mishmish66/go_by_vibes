@@ -139,7 +139,7 @@ vibe_config = TrainConfig.init(
     rollout_length=512,
     reconstruction_weight=1.0,
     forward_weight=1.0,
-    smoothness_weight=1.0,
+    smoothness_weight=5.0,
     condensation_weight=10.0,
     dispersion_weight=10.0,
     inverse_reconstruction_gate_sharpness=1,
@@ -151,7 +151,7 @@ vibe_config = TrainConfig.init(
     dispersion_gate_sharpness=1,
     condensation_gate_sharpness=1,
     forward_gate_center=-2,
-    smoothness_gate_center=-6,
+    smoothness_gate_center=-3,
     dispersion_gate_center=-9,
     condensation_gate_center=-9,
 )

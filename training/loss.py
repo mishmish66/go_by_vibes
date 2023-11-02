@@ -109,7 +109,7 @@ def loss_disperse(
 def loss_condense(
     latent_actions,
 ):
-    target_radius = 1.0
+    target_radius = 2.0
     latent_action_rads = jnp.linalg.norm(latent_actions, ord=1, axis=-1)
 
     latent_action_rad_violations = jnp.maximum(latent_action_rads - target_radius, 0)
