@@ -369,7 +369,7 @@ def do_rollout(carry_pack, _):
             vibe_state,
         ) = carry_pack
 
-        if rollout_i % 4 == 0:
+        if rollout_i % 1 == 0:
             # Eval the actor every n epochs
             print("Evaluating actor")
             rng, key = jax.random.split(key)
