@@ -1,0 +1,160 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images\
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsfonts}
+
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+\DeclareMathOperator*{\argmax}{argmax}
+
+\title{Go By Vibes}
+\author{Misha Lvovsky}
+\date{November 2023}
+
+\begin{document}
+
+\maketitle
+
+\section{Problem Statement}
+
+We want to create a smooth embedding space which is analogous to our joint space.
+Let's define that a neighborhood in our embedding space has a size of $1$ unit. This means that within $1$ unit all actions and states should be similar and should yield similar results. We can tie these vicinities together by saying that a certain vicinity should correspond with a certain amount of elapsed time. A certain action should be in the vicinity of another action if the resultant states they reach from a given source state are themselves in the same smaller vicinity.
+
+\section{Spaces}
+
+\begin{definition} [State Space]
+    Let $\mathcal{S}$ signify the space of all possible states for the system.
+\end{definition}
+\begin{definition} [Action Space]
+    Let $\mathcal{A}$ signify the space of all possible actions the agent can make
+\end{definition}
+\begin{definition} [Embedding Space]
+    Let $\mathcal{Z}^s$ and $\mathcal{Z}^a$ signify the spaces of all possible embeddings of states and actions respectively.
+\end{definition}
+
+
+\section{Transformations}
+
+\subsection*{Definitions}
+
+\begin{definition} [Encoders]
+    Let $\mathcal{E}$ represent the encoders which map $\mathcal{E}_s: \mathcal{S}\rightarrow\mathcal{Z}^s$ and $\mathcal{E}_a: \mathcal{A} \times \mathcal{Z}^s \rightarrow \mathcal{Z}^a$
+\end{definition}
+\begin{definition} [Decoders]
+    Let $\mathcal{D}$ represent the decoders which map $\mathcal{D}_s: \mathcal{Z}^s \rightarrow \mathcal{S}$ and $\mathcal{D}_a: \mathcal{Z}^a \times \mathcal{Z}^s \rightarrow \mathcal{A}$.
+\end{definition}
+\begin{definition} [Forward Model]
+    Let $\mathcal{F}$ represent the forward model which maps $\mathcal{F}: \mathcal{Z}^s \times \mathcal{Z}^a \rightarrow \mathcal{Z}^s$ where the inputs are state and action at time step $t$ and the output is the state at time step $t+1$
+\end{definition}
+\begin{definition} [Distance Metric]
+    Let $d$ represent distance metrics in the latent state and action spaces $d_s: \mathcal{Z}^s \times \mathcal{Z}^s \rightarrow \mathbb{R}$ and $d_a: \mathcal{Z}^a \times \mathcal{Z}^a \rightarrow \mathbb{R}$
+\end{definition}
+
+\subsection*{Details}
+
+\begin{itemize}
+    \item The action encoder is conditioned on the state because the same actions might be functionally different in different contexts.
+    \item When writing $\mathcal{E}$ and $\mathcal{D}$ the subscript will be omitted to simplify notation.
+        % \item $\mathcal{FE}(s, a)$ is defined as $\mathcal{F} \left( \mathcal{E}(s), \mathcal{E}(s, a) \right)$ to simplify notation.
+        % \item $z^s$ and $z^a$ are defined as $\mathcal{E}(s)$ and $\mathcal{E}(a, s)$ respectively to simplify notation.
+\end{itemize}
+
+
+\section{Representation Properties}
+
+To create an abstract representation of states and actions we search for a fixed size set of actions which enable traversal over maximal set of states.
+To realize this we apply a few constraints.
+
+\subsection*{Smoothness Constraint}
+
+The purpose of this create "neighborhoods" in the state and action spaces.
+In these neighborhoods latent states and actions are grouped together based on a pre-defined distance metric.\\
+
+\noindent
+Formally for any state action pairs $(s_i, a_i)$ and $(s_j, a_j)$, the states and actions should be in the same neighborhood if the future states they lead to are also in the same neighborhood.
+\begin{align*}
+    & \forall (s_i, a_i) \in \mathcal{S} \times \mathcal{A},                                                      \\
+    & \forall (a_i, a_j) \in \mathcal{S} \times \mathcal{A}:                                                      \\
+    & \qquad \text{Let } z_{si} = \mathcal{E}(s_i) \text{ and } z_{sj} = \mathcal{E}(s_j)                         \\
+    & \qquad \text{Let } z_{ai} = \mathcal{E}(a_i, z_{si}) \text{ and } z_{aj} = \mathcal{E}(a_j, z_{sj})         \\
+    & \qquad \text{Let } z_{si}' = \mathcal{F}(z_{si}, z_{ai}) \text{ and } z_{sj}' = \mathcal{F}(z_{sj}, z_{aj}) \\
+    & \qquad \qquad d(z_{si}, z_{sj}) < 1 \land d(z_{ai}, z_{aj}) < 1 \iff d(z_{si}', z_{sj}') < 1
+\end{align*}
+
+
+
+\subsection*{Radius Constraint}
+
+The purpose of this constraint is to limit the number of neighborhoods which can exist.
+The smoothness constraint alone does not force abstract representation because the mapping can simply make every neighborhood contain only one action.
+To force the representation to learn an interesting abstraction we can modify two properties of the latent action space.
+First we can limit the number of interfaces that one neighborhood may have with another.
+In my experiments this variation takes the form of varying the dimensionality of the latent action representations.
+For example, for action representations in $\mathbb{R}^2$ if the $l$-$1$ norm is used as the distance metric each action neighborhood can have 4 adjacent neighborhoods.
+Second we can modify the radius of the action space.
+This takes the form of limiting the maximal distance between two actions.
+Between those two options we can tune the action space such that it produces the desired level of abstraction.\\
+
+\noindent
+Formally we say that for all state and action pairs $(s_i, a_i)$ and $(s_j, a_j)$ the distance metric between their latent representations should be less than twice the radius.
+
+\begin{align*}
+    & \text{Let } z_{si} = \mathcal{E}(s_i) \text{ and } z_{sj} = \mathcal{E}(s_j)                 \\
+    & \text{Let } z_{ai} = \mathcal{E}(a_i, z_{si}) \text{ and } z_{aj} = \mathcal{E}(a_j, z_{sj}) \\
+    & \qquad \forall(s_i, a_i) \in \mathcal{S} \times \mathcal{A}                                                \\
+    & \qquad \forall(s_j, a_j) \in \mathcal{S} \times \mathcal{A}                                                \\
+    & \qquad \qquad d(z_{ai}, z_{aj}) < 2R \\
+\end{align*}
+
+\subsection*{Dispersion Objective}
+
+The purpose of this objective is to create a maximally abstract representation of our system states given the constraints on the action space.
+By maximizing the number of state neighborhoods we force the representation to find the most abstracted form of our limited number of actions which best explain all of the possible state transitions.
+
+\noindent
+Formally we want our $\mathcal{E}$ to be the one that maximizes the distance between all state transitions while satisfying the constraints.
+
+\begin{align*}
+    & \mathcal{E}^* = \argmax_\mathcal{E} \left\{\mathbb{E}_{(s_i, s_j) \in \mathcal{S} \times \mathcal{S}} \left[ d(\mathcal{E}(s_i), \mathcal{E}(s_j)) \right] \right\} \\
+    & \text{s.t.} \quad \forall (s_i, a_i), (s_j a_j) \in \mathcal{S} \times \mathcal{A} \\
+    & \quad\quad\text{Smoothness Constraint: } \\
+    & \quad\quad\quad d(z_{si}, z_{sj}) < 1 \land d(z_{ai}, z_{aj}) < 1 \iff d(z_{si}', z_{sj}') < 1 \\
+    & \quad\quad\text{Radius Constraint: } \\
+    & \quad\quad\quad d(z_{ai}, z_{aj}) < 2R \\
+\end{align*}
+
+\section{Loss Functions}
+
+Now we will define a set of loss functions which optimize the dispersion objective and enforces the constraints.
+Let $\mathcal{B}$ denote a large representative offline set of rollouts.
+
+\subsection*{Reconstruction Loss}
+The first loss trains $\mathcal{E}$ and $\mathcal{D}$ to be a standard auto-encoder for states and actions.
+
+\begin{align*}
+    & \text{Let } s' = \mathcal{D}(\mathcal{E}(s)) \text{ and } a' = \mathcal{D}(\mathcal{E}(a, s)): \\
+    & \qquad \mathcal{L}_\text{reconstruction} = \mathbb{E}_{(s, a) \sim \mathcal{B}} \left[ - p(s'=s) - p(a'=a) \right]
+\end{align*}
+
+\subsection*{Forward Loss}
+The next loss function trains the forwards model $\mathcal{F}$ to model the dynamics in the latent space.
+
+\begin{align*}
+    & \text{Let } z_{si+1}' = \mathcal{FE}(s_i, a_i) \text{ and } z_{si+1} = \mathcal{E}(s_{i+1}): \\
+    & \qquad \mathcal{L}_\text{forward} = \mathbb{E}_{(s_i, a_i, s_{i+1}) \sim \mathcal{B}} \left[ - p(z_{si+1}' = z_{s_i+1}) \right]
+\end{align*}
+
+\subsection*{Smoothness Loss}
+This loss function enforces the smoothness constraint on the latent space. To evaluate this loss function we define a neighborhood distributions in state and action space $\mathcal{H}_s$ and $\mathcal{H}_a$ which can be any distribution such that.
+
+\begin{align*}
+    & \text{Let } z_{si} = \mathcal{E}(s_i) \text{ and } z_{ai} = \mathcal{E}(a_i, s_i), \\
+    & \text{Let } \mathcal{H}_{si} = \mathcal{H}_{s}(z_{si}) \text{ and } \mathcal{H}_{ai} = \mathcal{H}_a(z_{ai}): \\
+    & \mathcal{H}_s \text{ such that } p( z_{sj} | \mathcal{H}_{si} ) > 0 \iff d(z_{si}, z_{sj}) < 1 \\
+    & \mathcal{H}_a \text{ such that } p( z_{aj} | \mathcal{H}_{ai} ) > 0 \iff d(z_{ai}. z_{aj}) < 1 \\
+    & \qquad \mathcal{L}_\text{smoothness} = \mathbb{E}_{(s_i, a_i) \sim \mathcal{B}, z_{sj} \sim \mathcal{H}_{si}, z_{aj} \sim \mathcal{H}_{ai}} \left[ \min(d(z_{si}, z_{sj}) - 1, 0) \right] \\
+\end{align*}
+\end{document}
