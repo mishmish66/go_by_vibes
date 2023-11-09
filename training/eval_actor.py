@@ -30,7 +30,12 @@ def evaluate_actor(
     vibe_state: VibeState,
     vibe_config: TrainConfig,
     target_q=1.0,
-    update_steps=2048,
+    big_step_size=0.5,
+    big_steps=512,
+    small_step_size=0.005,
+    small_steps=512,
+    big_post_steps=16,
+    small_post_steps=48,
 ):
     horizon = vibe_config.rollout_length
 
@@ -84,6 +89,12 @@ def evaluate_actor(
         vibe_state,
         vibe_config,
         env_cls,
+        big_step_size=big_step_size,
+        big_steps=big_steps,
+        small_step_size=small_step_size,
+        small_steps=small_steps,
+        big_post_steps=big_post_steps,
+        small_post_steps=small_post_steps,
     )
     
     rng, key = jax.random.split(key)
