@@ -68,21 +68,23 @@ def loss_forward(
 
 
 def loss_reconstruction(
-    inferred_state_gaussian_params,
-    inferred_action_gaussian_params,
-    gt_states,
-    gt_actions,
+    gaussian_params,
+    gt_value,
 ):
-    state_probs = jax.vmap(
-        eval_log_gaussian,
-        (0, 0),
-    )(inferred_state_gaussian_params, gt_states)
-    action_probs = jax.vmap(
-        eval_log_gaussian,
-        (0, 0),
-    )(inferred_action_gaussian_params, gt_actions)
+    """Evaluates the probabilities of the gt_value under that gaussian.
 
-    return -(jnp.mean(state_probs) + jnp.mean(action_probs))
+    Args:
+        gaussian_params (Array): An (n x 2d) array of n gaussian parameters with dimensionality d.
+        gt_value (Array): An (n x d) array of n ground truth values with dimensionality d.
+
+    Returns:
+        Scalar: The mean negative log value of the gaussian at the gt points.
+    """
+    probs = jax.vmap(
+        eval_log_gaussian,
+        (0, 0),
+    )(gaussian_params, gt_value)
+    return -jnp.mean(probs)
 
 
 def loss_smoothness(
@@ -97,55 +99,88 @@ def loss_smoothness(
 
 
 def loss_disperse(
-    latent_states,
+    key,
+    latents,
+    samples=16,
 ):
-    diffs = latent_states[None, ...] - latent_states[:, None, ...]
-    diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
-    diff_mag_logs = jnp.log(diff_mags + 1e-6)
+    """This function computes the dispersion loss between a sampled set of latents.
 
-    return -jnp.mean(diff_mag_logs)
+    Args:
+        key (PRNGKey): The rng key to sample with
+        latents (Array): An (n x d) array of n latent variable with dimensionality d
+
+    Returns:
+        Scalar: The loss value for the set of latents
+    """
+    rng, key = jax.random.split(key)
+    samples = jax.random.choice(rng, latents, shape=[samples], replace=False)
+    diffs = samples[:, None] - samples[None, :]
+    diff_norms = jnp.linalg.norm(diffs, ord=1, axis=-1)
+    diff_norm_logs = jnp.log(diff_norms + 1e-6)
+
+    return -jnp.mean(diff_norm_logs)
 
 
 def loss_condense(
-    latent_actions,
+    key,
+    latents,
+    target_radius=1.0,
+    samples=16,
 ):
-    target_radius = 2.0
-    latent_action_rads = jnp.linalg.norm(latent_actions, ord=1, axis=-1)
+    """This function samples a few latent and computes the radius violation of that one latent.
+
+    Args:
+        key (PRNGKey): The rng key to use.
+        latents (Array): An (n x d) array of n latent variables with dimensionality d.
+        target_radius (float, optional): The radius to condense to. Defaults to 1.0.
+
+    Returns:
+        Scalar: The loss value for the sampled latent.
+    """
+    rng, key = jax.random.split(key)
+    latents = jax.random.choice(rng, latents, shape=[samples], replace=False)
+    latent_action_rads = jnp.linalg.norm(latents, ord=1, axis=-1)
 
     latent_action_rad_violations = jnp.maximum(latent_action_rads - target_radius, 0)
 
     return jnp.mean(jnp.log(latent_action_rad_violations + 1e-6))
 
 
-def composed_whole_traj_losses(
+def unordered_losses(
     key,
     states,
     actions,
     vibe_state: VibeState,
     train_config: TrainConfig,
 ):
-    """This will sample one encoding from the encoder and evaluate losses"""
+    """This will sample one encoding from the encoder and evaluate the losses that require a whole trajectory.
+
+    Args:
+        key (PRNGKey): The random key to use.
+        states (Array): An (n x d) array of n states with dimensionality d.
+        actions (Array): An (n x d) array of n actions with dimensionality d.
+        vibe_state (VibeState): The state of the network.
+        train_config (TrainConfig): The training configuration.
+
+    Returns:
+        (Losses, Info): A tuple of the loss and info objects.
+    """
 
     result_infos = Infos.init()
 
-    latent_state_gauss_params = jax.vmap(get_latent_state_gaussian, (0, None, None))(
-        states, vibe_state, train_config
-    )
-
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, states.shape[0])
-    latent_states = jax.vmap(sample_gaussian)(rngs, latent_state_gauss_params)
-
-    prev_latent_states = latent_states[:-1]
-
-    latent_action_gauss_params = jax.vmap(
-        get_latent_action_gaussian,
+    latent_states = jax.vmap(
+        encode_state,
         (0, 0, None, None),
-    )(actions, prev_latent_states, vibe_state, train_config)
+    )(rngs, states, vibe_state, train_config)
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[0])
-    latent_actions = jax.vmap(sample_gaussian)(rngs, latent_action_gauss_params)
+    latent_actions = jax.vmap(
+        encode_action,
+        (0, 0, 0, None, None),
+    )(rngs, actions, latent_states, vibe_state, train_config)
 
     state_space_gaussians = jax.vmap(
         get_state_space_gaussian,
@@ -154,95 +189,51 @@ def composed_whole_traj_losses(
     action_space_gaussians = jax.vmap(
         get_action_space_gaussian,
         in_axes=(0, 0, None, None),
-    )(latent_actions, prev_latent_states, vibe_state, train_config)
+    )(latent_actions, latent_states, vibe_state, train_config)
 
     # Evaluate reconstruction loss:
-    reconstruction_loss = loss_reconstruction(
+    state_reconstruction_loss = loss_reconstruction(
         state_space_gaussians,
-        action_space_gaussians,
         states,
+    )
+    action_reconstruction_loss = loss_reconstruction(
+        action_space_gaussians,
         actions,
     )
+    reconstruction_loss = state_reconstruction_loss + action_reconstruction_loss
 
     result_infos = result_infos.add_loss_info(
         "reconstruction_loss", reconstruction_loss
     )
 
     # Evaluate dispersion loss
-    dispersion_loss = loss_disperse(latent_states)
-
-    # Evaluate condensation loss
-    # Resample actions from action space
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, latent_states.shape[0])
-    random_actions = jax.vmap(train_config.env_config.random_action)(rngs)
-
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, random_actions.shape[0])
-    latent_random_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
-        rngs, random_actions, latent_states, vibe_state, train_config
+    rngs = jax.random.split(rng, 4)
+    state_dispersion_loss = loss_disperse(
+        rngs[0], latent_states, samples=latent_states.shape[0]
+    )
+    state_condensation_loss = loss_condense(
+        rngs[1],
+        latent_states,
+        samples=latent_states.shape[0],
+        target_radius=train_config.state_radius,
     )
 
-    condensation_loss = loss_condense(latent_random_actions)
-
-    reconstructed_state_vars = state_space_gaussians[
-        ..., train_config.env_config.state_dim :
-    ]
-    reconstructed_state_means = state_space_gaussians[
-        ..., : train_config.env_config.state_dim
-    ]
-    reconstructed_state_mean_stdev_log = jnp.log(
-        jnp.mean(jnp.std(reconstructed_state_means, axis=0))
+    action_dispersion_loss = loss_disperse(
+        rngs[2], latent_actions, samples=latent_actions.shape[0]
+    )
+    action_condensation_loss = loss_condense(
+        rngs[3],
+        latent_actions,
+        samples=latent_actions.shape[0],
+        target_radius=train_config.action_radius,
     )
 
-    reconstructed_action_vars = action_space_gaussians[
-        ..., train_config.env_config.act_dim :
-    ]
-    reconstructed_action_means = action_space_gaussians[
-        ..., : train_config.env_config.act_dim
-    ]
-    reconstructed_action_mean_stdev_log = jnp.log(
-        jnp.mean(jnp.std(reconstructed_action_means, axis=0))
-    )
-
-    latent_state_variances = latent_state_gauss_params[..., encoded_state_dim:]
-    latent_state_means = latent_state_gauss_params[..., :encoded_state_dim]
-    latent_state_mean_stdev_log = jnp.log(jnp.mean(jnp.std(latent_state_means, axis=0)))
-
-    latent_action_variances = latent_action_gauss_params[..., encoded_action_dim:]
-    latent_action_means = latent_action_gauss_params[..., :encoded_action_dim]
-    latent_action_mean_stdev_log = jnp.log(
-        jnp.mean(jnp.std(latent_action_means, axis=0))
-    )
+    dispersion_loss = state_dispersion_loss + action_dispersion_loss
+    condensation_loss = state_condensation_loss + action_condensation_loss
 
     result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
     result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
-
-    # result_infos = result_infos.add_plain_info(
-    #     "latent_state_var_logs", jnp.log(latent_state_variances)
-    # )
-    # result_infos = result_infos.add_plain_info(
-    #     "latent_state_mean_stdev_log", latent_state_mean_stdev_log
-    # )
-    # result_infos = result_infos.add_plain_info(
-    #     "latent_action_var_logs", jnp.log(latent_action_variances)
-    # )
-    # result_infos = result_infos.add_plain_info(
-    #     "latent_action_mean_stdev_log", latent_action_mean_stdev_log
-    # )
-
-    # result_infos = result_infos.add_plain_info(
-    #     "reconstructed_state_var_logs", jnp.log(reconstructed_state_vars)
-    # )
-    # result_infos = result_infos.add_plain_info(
-    #     "reconstructed_state_mean_stdev_log", reconstructed_state_mean_stdev_log
-    # )
-    # result_infos = result_infos.add_plain_info(
-    #     "reconstructed_action_var_logs", jnp.log(reconstructed_action_vars)
-    # )
-    # result_infos = result_infos.add_plain_info(
-    #     "reconstructed_action_mean_stdev_log", reconstructed_action_mean_stdev_log
-    # )
 
     return (
         Losses.init(
@@ -455,21 +446,15 @@ class Losses:
             train_config.smoothness_gate_sharpness,
             train_config.smoothness_gate_center,
         )
-        dispersion_gate = (
-            make_gate_value(
-                self.smoothness_loss,
-                train_config.dispersion_gate_sharpness,
-                train_config.dispersion_gate_center,
-            )
-            * smoothness_gate
+        dispersion_gate = make_gate_value(
+            self.smoothness_loss,
+            train_config.dispersion_gate_sharpness,
+            train_config.dispersion_gate_center,
         )
-        condensation_gate = (
-            make_gate_value(
-                self.smoothness_loss,
-                train_config.condensation_gate_sharpness,
-                train_config.condensation_gate_center,
-            )
-            * smoothness_gate
+        condensation_gate = make_gate_value(
+            self.smoothness_loss,
+            train_config.condensation_gate_sharpness,
+            train_config.condensation_gate_center,
         )
 
         scaled_reconstruction_loss = (

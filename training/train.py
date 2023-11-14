@@ -4,7 +4,7 @@ from jax import numpy as jnp
 from jax.experimental.host_callback import id_tap
 
 from .vibe_state import VibeState, TrainConfig
-from .loss import composed_random_index_losses, composed_whole_traj_losses, Losses
+from .loss import composed_random_index_losses, unordered_losses, Losses
 
 from .infos import Infos
 
@@ -45,27 +45,36 @@ def train_step(
             train_config,
         )
 
+        prev_states = rollout_result[0][:, :-1, :]
+
+        flat_states = rearrange(prev_states, "b t d -> (b t) d")
+        flat_actions = rearrange(rollout_result[1], "b t d -> (b t) d")
+
         rng, key = jax.random.split(key)
-        rngs_per_traj = jax.random.split(rng, n_traj)
-        rngs = jax.vmap(jax.random.split, (0, None))(rngs_per_traj, n_gaussian_samples)
-        losses_per_traj_per_gauss_sample, infos_per_traj_per_gauss_sample = jax.vmap(
-            jax.vmap(composed_whole_traj_losses, (0, None, None, None, None)),
-            (0, 0, 0, None, None),
+        rngs = jax.random.split(rng, [1])
+        (
+            losses_per_traj_per_gauss_sample,
+            infos_per_traj_per_gauss_sample,
+        ) = jax.vmap(
+            unordered_losses,
+            in_axes=(0, None, None, None, None),
         )(
             rngs,
-            rollout_result[0],
-            rollout_result[1],
+            flat_states,
+            flat_actions,
             updated_vibe_state,
             train_config,
         )
 
         def process_losses(losses):
             return jax.tree_map(
-                lambda x: jnp.mean(jnp.mean(x, axis=0), axis=0),
+                lambda x: jnp.mean(x, axis=0),
                 losses,
             )
 
-        random_index_losses = process_losses(losses_per_traj_per_random_index)
+        random_index_losses = process_losses(
+            process_losses(losses_per_traj_per_random_index)
+        )
         whole_traj_losses = process_losses(losses_per_traj_per_gauss_sample)
 
         losses = Losses.merge(random_index_losses, whole_traj_losses)
@@ -75,7 +84,7 @@ def train_step(
             infos_per_traj_per_gauss_sample,
         )
 
-        infos = infos_per_traj_per_comp.condense().condense()
+        infos = infos_per_traj_per_comp.condense()
 
         scaled_gated_losses, loss_infos = losses.scale_gate_info(train_config)
 

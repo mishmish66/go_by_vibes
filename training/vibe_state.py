@@ -60,6 +60,9 @@ class TrainConfig:
     rollout_length: int
     seed: int
 
+    state_radius: any
+    action_radius: any
+
     reconstruction_weight: any
     forward_weight: any
     smoothness_weight: any
@@ -100,6 +103,8 @@ class TrainConfig:
         every_k=1,
         traj_per_rollout=2048,
         rollout_length=250,
+        state_radius=1.5,
+        action_radius=1.0,
         reconstruction_weight=1.0,
         forward_weight=1.0,
         smoothness_weight=1.0,
@@ -134,6 +139,8 @@ class TrainConfig:
             every_k=every_k,
             traj_per_rollout=traj_per_rollout,
             rollout_length=rollout_length,
+            state_radius=state_radius,
+            action_radius=action_radius,
             reconstruction_weight=reconstruction_weight,
             forward_weight=forward_weight,
             smoothness_weight=smoothness_weight,
@@ -163,6 +170,8 @@ class TrainConfig:
             "batch_size": self.batch_size,
             "every_k": self.every_k,
             "rollout_length": self.rollout_length,
+            "state_radius": self.state_radius,
+            "action_radius": self.action_radius,
             "reconstruction_weight": self.reconstruction_weight,
             "forward_weight": self.forward_weight,
             "smoothness_weight": self.smoothness_weight,
@@ -199,6 +208,8 @@ class TrainConfig:
             "every_k": self.every_k,
             "traj_per_rollout": self.traj_per_rollout,
             "rollout_length": self.rollout_length,
+            "state_radius": self.state_radius,
+            "action_radius": self.action_radius,
             "reconstruction_weight": self.reconstruction_weight,
             "forward_weight": self.forward_weight,
             "smoothness_weight": self.smoothness_weight,
@@ -236,14 +247,20 @@ class TrainConfig:
             every_k=aux["every_k"],
             traj_per_rollout=aux["traj_per_rollout"],
             rollout_length=aux["rollout_length"],
+            state_radius=aux["state_radius"],
+            action_radius=aux["action_radius"],
             reconstruction_weight=aux["reconstruction_weight"],
             forward_weight=aux["forward_weight"],
             smoothness_weight=aux["smoothness_weight"],
             dispersion_weight=aux["dispersion_weight"],
             condensation_weight=aux["condensation_weight"],
-            inverse_reconstruction_gate_sharpness=aux["inverse_reconstruction_gate_sharpness"],
+            inverse_reconstruction_gate_sharpness=aux[
+                "inverse_reconstruction_gate_sharpness"
+            ],
             inverse_forward_gate_sharpness=aux["inverse_forward_gate_sharpness"],
-            inverse_reconstruction_gate_center=aux["inverse_reconstruction_gate_center"],
+            inverse_reconstruction_gate_center=aux[
+                "inverse_reconstruction_gate_center"
+            ],
             inverse_forward_gate_center=aux["inverse_forward_gate_center"],
             forward_gate_sharpness=aux["forward_gate_sharpness"],
             smoothness_gate_sharpness=aux["smoothness_gate_sharpness"],
