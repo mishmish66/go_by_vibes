@@ -163,7 +163,7 @@ def optimize_actions(
 
         column_grads = einsum(act_grad, causal_mask, "i ..., i -> i ...")
         column_norms = jnp.linalg.norm(column_grads, ord=1, axis=-1)
-        normalized_grad_columns = column_grads / column_norms
+        normalized_grad_columns = einsum(column_grads, 1 / column_norms, "i ..., i -> i ...")
 
         new_columns = current_plan - big_step_size * normalized_grad_columns
         new_column_is_in_space = jnp.linalg.norm(new_columns, ord=1, axis=-1) < vibe_config.action_radius
@@ -171,7 +171,7 @@ def optimize_actions(
         
         max_norm = jnp.max(safe_column_norms)
         max_column_idx = jnp.argmax(safe_column_norms)
-        new_column, changed_idx = jax.lax.cond(max_norm > 0, lambda: (new_column[max_column_idx], max_column_idx), lambda: (current_plan[max_column_idx], -1))
+        new_column, changed_idx = jax.lax.cond(max_norm > 0, lambda: (new_columns[max_column_idx], max_column_idx), lambda: (current_plan[max_column_idx], -1))
         new_column = new_columns[max_column_idx]
 
         next_plan = current_plan.at[max_column_idx].set(new_column)
