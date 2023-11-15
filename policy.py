@@ -161,19 +161,21 @@ def optimize_actions(
             rng,
         )
 
-        act_grad_future = einsum(act_grad, causal_mask, "i ..., i -> i ...")
+        column_grads = einsum(act_grad, causal_mask, "i ..., i -> i ...")
+        column_norms = jnp.linalg.norm(column_grads, ord=1, axis=-1)
+        normalized_grad_columns = column_grads / column_norms
 
-        column_norms = jnp.linalg.norm(act_grad_future, ord=1, axis=-1)
-        max_column_idx = jnp.argmax(column_norms)
-        column_grad = act_grad_future[max_column_idx]
-        column_norm = column_norms[max_column_idx]
-        normalized_column_grad = column_grad / column_norm
-
-        old_column = current_plan[max_column_idx]
-        new_column = old_column - big_step_size * normalized_column_grad
+        new_columns = current_plan - big_step_size * normalized_grad_columns
+        new_column_is_in_space = jnp.linalg.norm(new_columns, ord=1, axis=-1) < vibe_config.action_radius
+        safe_column_norms = column_norms * new_column_is_in_space
+        
+        max_norm = jnp.max(safe_column_norms)
+        max_column_idx = jnp.argmax(safe_column_norms)
+        new_column, changed_idx = jax.lax.cond(max_norm > 0, lambda: (new_column[max_column_idx], max_column_idx), lambda: (current_plan[max_column_idx], -1))
+        new_column = new_columns[max_column_idx]
 
         next_plan = current_plan.at[max_column_idx].set(new_column)
-        return next_plan, (cost, max_column_idx)
+        return next_plan, (cost, changed_idx)
 
     def small_scanf(current_plan, key):
         rng, key = jax.random.split(key)

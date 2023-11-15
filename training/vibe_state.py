@@ -103,7 +103,7 @@ class TrainConfig:
         every_k=1,
         traj_per_rollout=2048,
         rollout_length=250,
-        state_radius=1.5,
+        state_radius=0.8,
         action_radius=1.0,
         reconstruction_weight=1.0,
         forward_weight=1.0,
