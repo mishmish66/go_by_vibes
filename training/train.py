@@ -51,7 +51,7 @@ def train_step(
         flat_actions = rearrange(rollout_result[1], "b t d -> (b t) d")
 
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, [1])
+        rngs = jax.random.split(rng, 1)
         (
             losses_per_traj_per_gauss_sample,
             infos_per_traj_per_gauss_sample,
