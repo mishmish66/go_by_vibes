@@ -387,7 +387,7 @@ def do_rollout(carry_pack, _):
                 small_post_steps=4,
             )
 
-            (eval_states, _), infos, _ = jax.vmap(eval_actor_partial)(rngs)
+            (eval_states, _), infos, _, _ = jax.vmap(eval_actor_partial)(rngs)
 
             rng, key = jax.random.split(key)
             random_traj = jax.random.choice(rng, eval_states, axis=0)

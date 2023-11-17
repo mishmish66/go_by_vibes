@@ -124,4 +124,4 @@ def evaluate_actor(
     info = info.add_plain_info("min expected cost", costs[min_idx])
     info = info.add_plain_info("final expected cost", costs[-1])
 
-    return (result_states, result_actions), info, optimized_actions
+    return (result_states, result_actions), info, optimized_actions, costs
