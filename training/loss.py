@@ -55,16 +55,13 @@ def eval_log_gaussian(gaussian, point):
 def loss_forward(
     inferred_latent_states_prime_gauss_params,
     gt_next_latent_states,
-    inferred_state_mask,
 ):
     log_probs = jax.vmap(
         eval_log_gaussian,
         (0, 0),
     )(inferred_latent_states_prime_gauss_params, gt_next_latent_states)
 
-    relevant_log_probs = log_probs * inferred_state_mask
-
-    return jnp.mean(-relevant_log_probs)
+    return jnp.mean(-log_probs)
 
 
 def loss_reconstruction(
@@ -159,6 +156,9 @@ def loss_disperse(
     )
 
     dist_diff_mags = jnp.abs(successor_pair_dists - action_pair_dists)
+
+    jax.debug.print("action_pair_dists: {}", action_pair_dists)
+    jax.debug.print("successor_pair_dists: {}", successor_pair_dists)
 
     diff_norms = jnp.linalg.norm(dist_diff_mags, ord=1, axis=-1)
     diff_norm_logs = jnp.log(diff_norms + 1e-6)
@@ -292,6 +292,7 @@ def composed_random_index_losses(
     actions,
     vibe_state: VibeState,
     train_config: TrainConfig,
+    context_length=128,
 ):
     result_infos = Infos.init()
 
@@ -310,76 +311,47 @@ def composed_random_index_losses(
         rngs, actions, prev_latent_states, vibe_state, train_config
     )
 
-    # Generate a random index to make the network guess
-    # the second part of the latent state sequence
-    # give it some padding so it has to predict at least
-    # an eighth of the sequence
-    end_padding = prev_latent_states.shape[0] // 8
-    random_i = jax.random.randint(key, [], 0, prev_latent_states.shape[0] - end_padding)
+    # Generate a random index that is not in the last context_length
+    slice_begin = jax.random.randint(key, [], 0, states.shape[0] - 1 - context_length)
 
-    # Now just a bunch of stuff to slice up the arrays
-    last_known_state_i = random_i
-    last_known_state = prev_latent_states[last_known_state_i]
-
-    inferred_next_state_mask = make_mask(
-        next_latent_states.shape[0], last_known_state_i
+    # Now we slice out the context
+    slice_prev_latent_states = jax.lax.dynamic_slice_in_dim(
+        prev_latent_states, slice_begin, context_length
     )
+    slice_next_latent_states = jax.lax.dynamic_slice_in_dim(
+        next_latent_states, slice_begin, context_length
+    )
+
+    slice_latent_actions = jax.lax.dynamic_slice_in_dim(
+        latent_actions, slice_begin, context_length
+    )
+
+    slice_latent_start_state = slice_prev_latent_states[0]
 
     # Now we get predict the next latent states
-    latent_states_prime_gaussians = get_latent_state_prime_gaussians(
-        last_known_state,
-        latent_actions,
+    slice_latent_state_prime_gaussians = get_latent_state_prime_gaussians(
+        slice_latent_start_state,
+        slice_latent_actions,
         vibe_state,
         train_config,
-        last_known_state_i,
-    )
-
-    gt_next_latent_states = einsum(
-        next_latent_states,
-        inferred_next_state_mask,
-        "t d, t -> t d",
-    )
-
-    # Sample the next latent states
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, latent_states_prime_gaussians.shape[0])
-    latent_states_prime_sampled = jax.vmap(sample_gaussian, (0, 0))(
-        rngs,
-        latent_states_prime_gaussians,
-    )
-    inferred_latent_states_prime_sampled = einsum(
-        latent_states_prime_sampled,
-        inferred_next_state_mask,
-        "t d, t -> t d",
     )
 
     # Evaluate the forward loss
     forward_loss = loss_forward(
-        latent_states_prime_gaussians, gt_next_latent_states, inferred_next_state_mask
+        slice_latent_state_prime_gaussians, slice_next_latent_states
     )
-
-    state_prime_diffs = inferred_latent_states_prime_sampled - gt_next_latent_states
-
-    state_prime_diff_mags = jnp.linalg.norm(state_prime_diffs, axis=-1)
-    state_prime_diff_mag_logs = jnp.log(state_prime_diff_mags)
-
-    # result_infos = result_infos.add_masked_info(
-    #     "state_prime_diff_mag_logs",
-    #     state_prime_diff_mag_logs,
-    #     inferred_next_state_mask,
-    # )
 
     # Evaluate the smoothness loss
     # First we resample the indexed state
     rng, key = jax.random.split(key)
     neighborhood_latent_start_state = get_neighborhood_state(
         rng,
-        prev_latent_states[last_known_state_i],
+        slice_latent_start_state,
     )
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, latent_actions.shape[0])
+    rngs = jax.random.split(rng, slice_latent_actions.shape[0])
     neighborhood_latent_actions = jax.vmap(get_neighborhood_action)(
-        rngs, latent_actions
+        rngs, slice_latent_actions
     )
 
     # Now we resample the latent actions
@@ -391,11 +363,10 @@ def composed_random_index_losses(
         neighborhood_latent_actions,
         vibe_state,
         train_config,
-        last_known_state_i,
     )
     # Now we evaluate the smoothness loss
     smoothness_loss = loss_smoothness(
-        next_latent_states,
+        slice_next_latent_states,
         neighborhood_next_states_prime,
     )
 
