@@ -311,7 +311,8 @@ def unordered_losses(
         result_infos,
     )
 
-def forward_loss(
+
+def transition_forward_loss(
     key,
     states,
     actions,
@@ -319,7 +320,6 @@ def forward_loss(
     train_config: TrainConfig,
     context_length=128,
 ):
-    
     vibe_state = vibe_state.replace(
         state_encoder_params=jax.lax.stop_gradient(vibe_state.state_encoder_params),
         action_encoder_params=jax.lax.stop_gradient(vibe_state.action_encoder_params),
@@ -371,7 +371,8 @@ def forward_loss(
 
     # Evaluate the forward loss
     forward_loss = loss_forward(
-        slice_latent_state_prime_gaussians, jax.lax.stop_gradient(slice_next_latent_states)
+        slice_latent_state_prime_gaussians,
+        jax.lax.stop_gradient(slice_next_latent_states),
     )
 
     # Now lets predict a bunch of single state next latent states
@@ -405,10 +406,104 @@ def forward_loss(
 
     return (
         Losses.init(
-            forward_loss=forward_loss,
+            transition_forward_loss=forward_loss,
         ),
         result_infos,
     )
+
+
+def encoder_forward_loss(
+    key,
+    states,
+    actions,
+    vibe_state: VibeState,
+    train_config: TrainConfig,
+    context_length=128,
+):
+    result_infos = Infos.init()
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[0])
+    latent_states = jax.vmap(encode_state, (0, 0, None, None))(
+        rngs, states, vibe_state, train_config
+    )
+
+    prev_latent_states = latent_states[:-1]
+    next_latent_states = latent_states[1:]
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[0])
+    latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
+        rngs, actions, prev_latent_states, vibe_state, train_config
+    )
+
+    # Generate a random index that is not in the last context_length
+    slice_begin = jax.random.randint(key, [], 0, states.shape[0] - 1 - context_length)
+
+    # Now we slice out the context
+    slice_prev_latent_states = jax.lax.dynamic_slice_in_dim(
+        prev_latent_states, slice_begin, context_length
+    )
+    slice_next_latent_states = jax.lax.dynamic_slice_in_dim(
+        next_latent_states, slice_begin, context_length
+    )
+
+    slice_latent_actions = jax.lax.dynamic_slice_in_dim(
+        latent_actions, slice_begin, context_length
+    )
+
+    slice_latent_start_state = slice_prev_latent_states[0]
+
+    # Now we get predict the next latent states
+    slice_latent_state_prime_gaussians = get_latent_state_prime_gaussians(
+        jax.lax.stop_gradient(slice_latent_start_state),
+        jax.lax.stop_gradient(slice_latent_actions),
+        vibe_state,
+        train_config,
+    )
+
+    # Evaluate the forward loss
+    forward_loss = loss_forward(
+        slice_latent_state_prime_gaussians,
+        jax.lax.stop_gradient(slice_next_latent_states),
+    )
+
+    # Now lets predict a bunch of single state next latent states
+    num_random_samples = 32
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, num_random_samples)
+    random_indices = jax.random.randint(
+        rng, [num_random_samples], 0, slice_prev_latent_states.shape[0] - 1
+    )
+    random_prev_latent_states = slice_prev_latent_states[random_indices]
+    random_latent_actions = slice_latent_actions[random_indices]
+    random_next_latent_states = slice_next_latent_states[random_indices]
+
+    random_state_prime_gaussians = jax.vmap(
+        get_latent_state_prime_gaussians, in_axes=(0, 0, None, None)
+    )(
+        random_prev_latent_states,
+        random_latent_actions[:, None, :],
+        vibe_state,
+        train_config,
+    )
+
+    # Now we evaluate the single step forward loss
+    single_step_forward_loss = loss_forward(
+        random_state_prime_gaussians[..., 0, :], random_next_latent_states
+    )
+
+    forward_loss = forward_loss + single_step_forward_loss
+
+    result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
+
+    return (
+        Losses.init(
+            encoder_forward_loss=forward_loss,
+        ),
+        result_infos,
+    )
+
 
 def smoothness_loss(
     key,
@@ -419,7 +514,9 @@ def smoothness_loss(
     context_length=128,
 ):
     vibe_state = vibe_state.replace(
-        transition_model_params=jax.lax.stop_gradient(vibe_state.transition_model_params),
+        transition_model_params=jax.lax.stop_gradient(
+            vibe_state.transition_model_params
+        ),
     )
     result_infos = Infos.init()
 
@@ -498,7 +595,8 @@ def smoothness_loss(
 @dataclass
 class Losses:
     reconstruction_loss: any
-    forward_loss: any
+    transition_forward_loss: any
+    encoder_forward_loss: any
     smoothness_loss: any
     dispersion_loss: any
     condensation_loss: any
@@ -507,14 +605,16 @@ class Losses:
     def init(
         cls,
         reconstruction_loss=0,
-        forward_loss=0,
+        encoder_forward_loss=0,
+        transition_forward_loss=0,
         smoothness_loss=0,
         dispersion_loss=0,
         condensation_loss=0,
     ):
         return cls(
             reconstruction_loss=reconstruction_loss,
-            forward_loss=forward_loss,
+            encoder_forward_loss=encoder_forward_loss,
+            transition_forward_loss=transition_forward_loss,
             smoothness_loss=smoothness_loss,
             dispersion_loss=dispersion_loss,
             condensation_loss=condensation_loss,
@@ -523,7 +623,8 @@ class Losses:
     def tree_flatten(self):
         return [
             self.reconstruction_loss,
-            self.forward_loss,
+            self.encoder_forward_loss,
+            self.transition_forward_loss,
             self.smoothness_loss,
             self.dispersion_loss,
             self.condensation_loss,
@@ -533,17 +634,20 @@ class Losses:
     def tree_unflatten(cls, aux, data):
         return cls.init(
             reconstruction_loss=data[0],
-            forward_loss=data[1],
-            smoothness_loss=data[2],
-            dispersion_loss=data[3],
-            condensation_loss=data[4],
+            encoder_forward_loss=data[1],
+            transition_forward_loss=data[2],
+            smoothness_loss=data[3],
+            dispersion_loss=data[4],
+            condensation_loss=data[5],
         )
 
     @classmethod
     def merge(cls, a, b):
         return cls.init(
             reconstruction_loss=a.reconstruction_loss + b.reconstruction_loss,
-            forward_loss=a.forward_loss + b.forward_loss,
+            encoder_forward_loss=a.encoder_forward_loss + b.encoder_forward_loss,
+            transition_forward_loss=a.transition_forward_loss
+            + b.transition_forward_loss,
             smoothness_loss=a.smoothness_loss + b.smoothness_loss,
             dispersion_loss=a.dispersion_loss + b.dispersion_loss,
             condensation_loss=a.condensation_loss + b.condensation_loss,
@@ -559,9 +663,15 @@ class Losses:
         )
 
         inverse_forward_gate = 1 - make_gate_value(
-            self.forward_loss,
+            self.transition_forward_loss,
             train_config.inverse_forward_gate_sharpness,
             train_config.inverse_forward_gate_center,
+        )
+
+        blending_forward_gate = make_gate_value(
+            self.transition_forward_loss,
+            train_config.blending_forward_gate_sharpness,
+            train_config.blending_forward_gate_center,
         )
 
         forward_gate = make_gate_value(
@@ -569,26 +679,40 @@ class Losses:
             train_config.forward_gate_sharpness,
             train_config.forward_gate_center,
         )
-        smoothness_gate = make_gate_value(
-            self.forward_loss,
-            train_config.smoothness_gate_sharpness,
-            train_config.smoothness_gate_center,
-        ) * forward_gate
-        dispersion_gate = make_gate_value(
-            self.smoothness_loss,
-            train_config.dispersion_gate_sharpness,
-            train_config.dispersion_gate_center,
-        ) * smoothness_gate
-        condensation_gate = make_gate_value(
-            self.smoothness_loss,
-            train_config.condensation_gate_sharpness,
-            train_config.condensation_gate_center,
-        ) * smoothness_gate
+        smoothness_gate = (
+            make_gate_value(
+                self.transition_forward_loss,
+                train_config.smoothness_gate_sharpness,
+                train_config.smoothness_gate_center,
+            )
+            * forward_gate
+        )
+        dispersion_gate = (
+            make_gate_value(
+                self.smoothness_loss,
+                train_config.dispersion_gate_sharpness,
+                train_config.dispersion_gate_center,
+            )
+            * smoothness_gate
+        )
+        condensation_gate = (
+            make_gate_value(
+                self.smoothness_loss,
+                train_config.condensation_gate_sharpness,
+                train_config.condensation_gate_center,
+            )
+            * smoothness_gate
+        )
 
         scaled_reconstruction_loss = (
             self.reconstruction_loss * train_config.reconstruction_weight
         )
-        scaled_forward_loss = self.forward_loss * train_config.forward_weight
+        blended_forward_loss = (
+            self.transition_forward_loss * (1 - blending_forward_gate)
+            + self.encoder_forward_loss * blending_forward_gate
+        )
+        print(blended_forward_loss.dtype)
+        scaled_forward_loss = blended_forward_loss * train_config.forward_weight
         scaled_smoothness_loss = self.smoothness_loss * train_config.smoothness_weight
         scaled_dispersion_loss = self.dispersion_loss * train_config.dispersion_weight
         scaled_condensation_loss = (
@@ -632,7 +756,7 @@ class Losses:
 
         result_loss = Losses.init(
             reconstruction_loss=scaled_gated_reconstruction_loss,
-            forward_loss=scaled_gated_forward_loss,
+            transition_forward_loss=scaled_gated_forward_loss,
             smoothness_loss=scaled_gated_smoothness_loss,
             dispersion_loss=scaled_gated_dispersion_loss,
             condensation_loss=scaled_gated_condensation_loss,
@@ -643,7 +767,8 @@ class Losses:
     def to_list(self):
         return [
             self.reconstruction_loss,
-            self.forward_loss,
+            self.transition_forward_loss,
+            self.encoder_forward_loss,
             self.smoothness_loss,
             self.dispersion_loss,
             self.condensation_loss,

@@ -4,7 +4,13 @@ from jax import numpy as jnp
 from jax.experimental.host_callback import id_tap
 
 from .vibe_state import VibeState, TrainConfig
-from .loss import forward_loss, smoothness_loss, unordered_losses, Losses
+from .loss import (
+    transition_forward_loss,
+    encoder_forward_loss,
+    smoothness_loss,
+    unordered_losses,
+    Losses,
+)
 
 from .infos import Infos
 
@@ -34,8 +40,25 @@ def train_step(
         rngs = jax.vmap(jax.random.split, (0, None))(
             rngs_per_traj, n_random_index_samples
         )
-        forward_losses_per_random_index, forward_infos_per_random_index = jax.vmap(
-            jax.vmap(forward_loss, (0, None, None, None, None)),
+        (
+            transition_forward_losses_per_random_index,
+            transition_forward_infos_per_random_index,
+        ) = jax.vmap(
+            jax.vmap(transition_forward_loss, (0, None, None, None, None)),
+            (0, 0, 0, None, None),
+        )(
+            rngs,
+            rollout_result[0],
+            rollout_result[1],
+            updated_vibe_state,
+            train_config,
+        )
+
+        (
+            encoder_forward_losses_per_random_index,
+            encoder_forward_infos_per_random_index,
+        ) = jax.vmap(
+            jax.vmap(encoder_forward_loss, (0, None, None, None, None)),
             (0, 0, 0, None, None),
         )(
             rngs,
@@ -91,7 +114,18 @@ def train_step(
                 losses,
             )
 
-        forward_losses = process_losses(process_losses(forward_losses_per_random_index))
+        transition_forward_losses = process_losses(
+            process_losses(transition_forward_losses_per_random_index)
+        )
+        encoder_forward_losses = process_losses(
+            process_losses(encoder_forward_losses_per_random_index)
+        )
+
+        forward_losses = Losses.merge(
+            transition_forward_losses,
+            encoder_forward_losses,
+        )
+
         smoothness_losses = process_losses(
             process_losses(smoothness_losses_per_random_index)
         )
@@ -99,6 +133,11 @@ def train_step(
 
         losses = Losses.merge(
             Losses.merge(forward_losses, whole_traj_losses), smoothness_losses
+        )
+
+        forward_infos_per_random_index = Infos.merge(
+            transition_forward_infos_per_random_index,
+            encoder_forward_infos_per_random_index,
         )
 
         infos_per_traj_per_comp = Infos.merge(
