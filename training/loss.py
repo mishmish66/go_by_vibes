@@ -338,6 +338,33 @@ def composed_random_index_losses(
         slice_latent_state_prime_gaussians, slice_next_latent_states
     )
 
+    # Now lets predict a bunch of single state next latent states
+    num_random_samples = 32
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, num_random_samples)
+    random_indices = jax.random.randint(
+        rng, [num_random_samples], 0, slice_prev_latent_states.shape[0] - 1
+    )
+    random_prev_latent_states = slice_prev_latent_states[random_indices]
+    random_latent_actions = slice_latent_actions[random_indices]
+    random_next_latent_states = slice_next_latent_states[random_indices]
+
+    random_state_prime_gaussians = jax.vmap(
+        get_latent_state_prime_gaussians, in_axes=(0, 0, None, None)
+    )(
+        random_prev_latent_states,
+        random_latent_actions[:, None, :],
+        vibe_state,
+        train_config,
+    )
+
+    # Now we evaluate the single step forward loss
+    single_step_forward_loss = loss_forward(
+        random_state_prime_gaussians[..., 0, :], random_next_latent_states
+    )
+
+    forward_loss = forward_loss + single_step_forward_loss
+
     # Evaluate the smoothness loss
     # First we resample the indexed state
     rng, key = jax.random.split(key)
