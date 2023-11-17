@@ -311,8 +311,7 @@ def unordered_losses(
         result_infos,
     )
 
-
-def composed_random_index_losses(
+def forward_loss(
     key,
     states,
     actions,
@@ -320,6 +319,14 @@ def composed_random_index_losses(
     train_config: TrainConfig,
     context_length=128,
 ):
+    
+    vibe_state = vibe_state.replace(
+        state_encoder_params=jax.lax.stop_gradient(vibe_state.state_encoder_params),
+        action_encoder_params=jax.lax.stop_gradient(vibe_state.action_encoder_params),
+        state_decoder_params=jax.lax.stop_gradient(vibe_state.state_decoder_params),
+        action_decoder_params=jax.lax.stop_gradient(vibe_state.action_decoder_params),
+    )
+
     result_infos = Infos.init()
 
     rng, key = jax.random.split(key)
@@ -356,15 +363,15 @@ def composed_random_index_losses(
 
     # Now we get predict the next latent states
     slice_latent_state_prime_gaussians = get_latent_state_prime_gaussians(
-        slice_latent_start_state,
-        slice_latent_actions,
+        jax.lax.stop_gradient(slice_latent_start_state),
+        jax.lax.stop_gradient(slice_latent_actions),
         vibe_state,
         train_config,
     )
 
     # Evaluate the forward loss
     forward_loss = loss_forward(
-        slice_latent_state_prime_gaussians, slice_next_latent_states
+        slice_latent_state_prime_gaussians, jax.lax.stop_gradient(slice_next_latent_states)
     )
 
     # Now lets predict a bunch of single state next latent states
@@ -393,6 +400,60 @@ def composed_random_index_losses(
     )
 
     forward_loss = forward_loss + single_step_forward_loss
+
+    result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
+
+    return (
+        Losses.init(
+            forward_loss=forward_loss,
+        ),
+        result_infos,
+    )
+
+def smoothness_loss(
+    key,
+    states,
+    actions,
+    vibe_state: VibeState,
+    train_config: TrainConfig,
+    context_length=128,
+):
+    vibe_state = vibe_state.replace(
+        transition_model_params=jax.lax.stop_gradient(vibe_state.transition_model_params),
+    )
+    result_infos = Infos.init()
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, states.shape[0])
+    latent_states = jax.vmap(encode_state, (0, 0, None, None))(
+        rngs, states, vibe_state, train_config
+    )
+
+    prev_latent_states = latent_states[:-1]
+    next_latent_states = latent_states[1:]
+
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, actions.shape[0])
+    latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
+        rngs, actions, prev_latent_states, vibe_state, train_config
+    )
+
+    # Generate a random index that is not in the last context_length
+    slice_begin = jax.random.randint(key, [], 0, states.shape[0] - 1 - context_length)
+
+    # Now we slice out the context
+    slice_prev_latent_states = jax.lax.dynamic_slice_in_dim(
+        prev_latent_states, slice_begin, context_length
+    )
+    slice_next_latent_states = jax.lax.dynamic_slice_in_dim(
+        next_latent_states, slice_begin, context_length
+    )
+
+    slice_latent_actions = jax.lax.dynamic_slice_in_dim(
+        latent_actions, slice_begin, context_length
+    )
+
+    slice_latent_start_state = slice_prev_latent_states[0]
 
     # Evaluate the smoothness loss
     # First we resample the indexed state
@@ -424,11 +485,9 @@ def composed_random_index_losses(
     )
 
     result_infos = result_infos.add_loss_info("smoothness_loss", smoothness_loss)
-    result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
 
     return (
         Losses.init(
-            forward_loss=forward_loss,
             smoothness_loss=smoothness_loss,
         ),
         result_infos,

@@ -4,7 +4,7 @@ from jax import numpy as jnp
 from jax.experimental.host_callback import id_tap
 
 from .vibe_state import VibeState, TrainConfig
-from .loss import composed_random_index_losses, unordered_losses, Losses
+from .loss import forward_loss, smoothness_loss, unordered_losses, Losses
 
 from .infos import Infos
 
@@ -34,8 +34,27 @@ def train_step(
         rngs = jax.vmap(jax.random.split, (0, None))(
             rngs_per_traj, n_random_index_samples
         )
-        losses_per_traj_per_random_index, infos_per_traj_per_random_index = jax.vmap(
-            jax.vmap(composed_random_index_losses, (0, None, None, None, None)),
+        forward_losses_per_random_index, forward_infos_per_random_index = jax.vmap(
+            jax.vmap(forward_loss, (0, None, None, None, None)),
+            (0, 0, 0, None, None),
+        )(
+            rngs,
+            rollout_result[0],
+            rollout_result[1],
+            updated_vibe_state,
+            train_config,
+        )
+
+        rng, key = jax.random.split(key)
+        rngs_per_traj = jax.random.split(rng, n_traj)
+        rngs = jax.vmap(jax.random.split, (0, None))(
+            rngs_per_traj, n_random_index_samples
+        )
+        (
+            smoothness_losses_per_random_index,
+            smoothness_infos_per_random_index,
+        ) = jax.vmap(
+            jax.vmap(smoothness_loss, (0, None, None, None, None)),
             (0, 0, 0, None, None),
         )(
             rngs,
@@ -72,16 +91,22 @@ def train_step(
                 losses,
             )
 
-        random_index_losses = process_losses(
-            process_losses(losses_per_traj_per_random_index)
+        forward_losses = process_losses(process_losses(forward_losses_per_random_index))
+        smoothness_losses = process_losses(
+            process_losses(smoothness_losses_per_random_index)
         )
         whole_traj_losses = process_losses(losses_per_traj_per_gauss_sample)
 
-        losses = Losses.merge(random_index_losses, whole_traj_losses)
+        losses = Losses.merge(
+            Losses.merge(forward_losses, whole_traj_losses), smoothness_losses
+        )
 
         infos_per_traj_per_comp = Infos.merge(
-            infos_per_traj_per_random_index,
-            infos_per_traj_per_gauss_sample,
+            Infos.merge(
+                forward_infos_per_random_index,
+                infos_per_traj_per_gauss_sample,
+            ),
+            smoothness_infos_per_random_index,
         )
 
         infos = infos_per_traj_per_comp.condense()
