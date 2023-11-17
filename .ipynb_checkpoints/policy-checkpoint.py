@@ -161,29 +161,19 @@ def optimize_actions(
             rng,
         )
 
-        column_grads = einsum(act_grad, causal_mask, "i ..., i -> i ...")
-        column_norms = jnp.linalg.norm(column_grads, ord=1, axis=-1)
-        normalized_grad_columns = einsum(
-            column_grads, 1 / column_norms, "i ..., i -> i ..."
-        )
+        act_grad_future = einsum(act_grad, causal_mask, "i ..., i -> i ...")
 
-        new_columns = current_plan - big_step_size * normalized_grad_columns
-        new_column_is_in_space = (
-            jnp.linalg.norm(new_columns, ord=1, axis=-1) < vibe_config.action_radius
-        )
-        safe_column_norms = column_norms * new_column_is_in_space
+        column_norms = jnp.linalg.norm(act_grad_future, ord=1, axis=-1)
+        max_column_idx = jnp.argmax(column_norms)
+        column_grad = act_grad_future[max_column_idx]
+        column_norm = column_norms[max_column_idx]
+        normalized_column_grad = column_grad / column_norm
 
-        max_norm = jnp.max(safe_column_norms)
-        max_column_idx = jnp.argmax(safe_column_norms)
-        new_column, changed_idx = jax.lax.cond(
-            max_norm > 0,
-            lambda: (new_columns[max_column_idx], max_column_idx),
-            lambda: (current_plan[max_column_idx], -1),
-        )
-        new_column = new_columns[max_column_idx]
+        old_column = current_plan[max_column_idx]
+        new_column = old_column - big_step_size * normalized_column_grad
 
         next_plan = current_plan.at[max_column_idx].set(new_column)
-        return next_plan, (cost, changed_idx)
+        return next_plan, (cost, max_column_idx)
 
     def small_scanf(current_plan, key):
         rng, key = jax.random.split(key)
@@ -232,42 +222,25 @@ def make_optimize_actor(
     small_post_steps=48,
 ):
     rng, key = jax.random.split(key)
-    latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
-
-    rng, key = jax.random.split(key)
-    random_latent_actions = jax.random.ball(
+    random_traj_states, random_traj_actions = make_random_traj(
         rng,
-        d=encoded_action_dim,
-        p=1,
-        shape=[vibe_config.rollout_length],
-    )
-    rng, key = jax.random.split(key)
-    random_latent_states = infer_states(
-        rng,
-        latent_start_state,
-        random_latent_actions,
+        start_state,
         vibe_state,
         vibe_config,
+        env_cls,
     )
-    # random_traj_states, random_traj_actions = make_random_traj(
-    #     rng,
-    #     start_state,
-    #     vibe_state,
-    #     vibe_config,
-    #     env_cls,
-    # )
 
-    # rng, key = jax.random.split(key)
-    # rngs = jax.random.split(rng, random_traj_states.shape[0])
-    # random_latent_states = jax.vmap(encode_state, (0, 0, None, None))(
-    #     rngs, random_traj_states, vibe_state, vibe_config
-    # )
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, random_traj_states.shape[0])
+    random_latent_states = jax.vmap(encode_state, (0, 0, None, None))(
+        rngs, random_traj_states, vibe_state, vibe_config
+    )
 
-    # rng, key = jax.random.split(key)
-    # rngs = jax.random.split(rng, random_traj_states.shape[0])
-    # random_latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
-    #     rngs, random_traj_actions, random_latent_states, vibe_state, vibe_config
-    # )
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, random_traj_states.shape[0])
+    random_latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
+        rngs, random_traj_actions, random_latent_states, vibe_state, vibe_config
+    )
 
     rng, key = jax.random.split(key)
     optimized_actions, (costs, big_active_inds) = optimize_actions(

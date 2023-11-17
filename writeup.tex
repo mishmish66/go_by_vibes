@@ -8,9 +8,9 @@
 
 \newtheorem{definition}{Definition}
 
-\title{Go By Vibes}
+\title{Trajectory Optimization in Smoothed Representation Spaces}
 \author{Misha Lvovsky}
-\date{August 2023}
+\date{November 2023}
 
 \begin{document}
 
@@ -18,177 +18,99 @@
 
 \section{Problem Statement}
 
-We want to create a smooth embedding space which is analogous to our joint space.
-Let's define that a neighborhood in our embedding space has a size of $1$ unit. This means that within $1$ unit all actions and states should be similar and should yield similar results. We can tie these vicinities together by saying that a certain vicinity should correspond with a certain amount of elapsed time. A certain action should be in the vicinity of another action if the resultant states they reach from a given source state are themselves in the same smaller vicinity.
+We want to create a smooth representation space which is analogous to our state and action spaces.
+Let's define that a neighborhood in our representation space has a size of \(1\) unit.
+We also define that all states in a neighborhood should be transformed similarly in state space by actions in a neighborhood.
 
 \section{Spaces}
 
-\begin{definition} [State Space] Let $\mathcal{S}$ signify the space of all possible states for the system.
+\begin{definition} [State Space]
+Let $\mathcal{S}$ signify the space of all possible states for the system.
 \end{definition}
 \begin{definition} [Action Space]
-    Let $\mathcal{A}$ signify the space of all possible actions the agent can make
+Let $\mathcal{A}$ signify the action space
 \end{definition}
 \begin{definition} [Embedding Space]
-Let $\mathcal{Z}^s$ and $\mathcal{Z}^a$ signify the spaces of all possible embeddings of states and actions respectively.
+Let $\mathcal{Z}_s$ and $\mathcal{Z}_a$ be the spaces of all possible embeddings of states and actions respectively.
 \end{definition}
 
-\section{Loss Functions 1}
+\section{Transformations}
 
-The first loss functions simply encourage the latent states and actions to be related to the actual states and actions.
-The log and sigmoid are added to prevent the gradient from vanishing or exploding.
-The action decoder is given the state information to allow it to encode actions in context within the current state.
+\subsection*{Definitions}
 
-$$\mathcal{L}_\text{reconstruction} = -\text{sigmoid}(p_\theta(s|z^s)) - \text{sigmoid}(p_\theta(a|z^s,z^a))$$
-$$z^s \sim p_\theta(z^s | s)$$
-$$z^a \sim p_\theta(z^a | s, a)$$
+\begin{definition} [Encoders]
+    Let \(\mathcal{E}\) represent the encoders which map \(\mathcal{E}_s: \mathcal{S}\rightarrow\mathcal{Z}^s\) and \(\mathcal{E}_a: \mathcal{A} \times \mathcal{Z}^s \rightarrow \mathcal{Z}^a\)
+\end{definition}
+\begin{definition} [Decoders]
+    Let \(\mathcal{D}\) represent the decoders model which map \(\mathcal{D}_s: \mathcal{Z}_s\rightarrow\mathcal{S}\) and \(\mathcal{Z}_a \times \mathcal{Z}_s\rightarrow \mathcal{A}\)
+\end{definition}
+\begin{definition} [Forward model]
+    Let \(\mathcal{F}\) represent the forward model which maps \(\mathcal{F}: \mathcal{Z}_s \times \mathcal{Z}_a \rightarrow \mathcal{Z}_s\) where the inputs are state and action at time step \(t\) and the output is the state at time \(t+1\)
+\end{definition}
+\begin{definition} [Distance Metric]
+    Let \(d\) represent a distance metric in the latent state and action spaces \(d_s: \mathcal{Z}_s \times \mathcal{Z}_s \rightarrow \mathbb{R}\) and \(d_a: \mathcal{Z}_a \times \mathcal{Z}_a \rightarrow \mathbb{R}\)
+\end{definition}
 
-
-The next loss function trains a latent dynamics model to propagate the dynamics in the latent space.
-Additionally when applied to the state and action encoders, this loss function encourages the latent states and actions to encode enough information about the actual states and actions to effectively predict the next state.
-
-$$\mathcal{L}_{\text{forward}} = \frac{1}{H} \sum\limits_{i=1}^H \frac{1}{H-j} \sum\limits_{j=i}^H \text{sigmoid}(d({z^s_j}', z^s_j)) \times 2 - 1$$
-$${z^s_j}' \sim p_\psi({z^s_j}' | z^s_{1:i},z^a_{1:H})$$
-
-
-Next we create a loss function which encourages the states and actions in latent space to be smooth with respect to the transition function.
-This means that small perturbations in the latent source state and action input to the forward model should result in proportionally small changes to the resultant predicted next state.
-We do this by sampling $N$ states in the neighborhood of our mean state $z_\mu^s$ and propagating those states through the latent forward model to get the predicted next states.
-All of the states should remain approximately within the neighborhood of the mean state's next state ${z_\mu^s}'$.
-Like before the log and sigmoid are used to prevent the gradient from vanishing or exploding and the sum is divided to keep the total reward between $0$ and $1$.
-
-$$\mathcal{L}_\text{smooth} = \frac{1}{N}\sum\limits_j^N \text{sigmoid}(\max(0, d({z^s_j}', {z^s_\mu}') - 1)) \times 2 - 1$$
-$${z^s_i}' \sim p({z^s_i}'|z^s_i,z^a_i)$$
-$$z^s_j \sim p(z^s_i | \mu=z^s_\mu, \sigma^2=\mathbf{I})$$
-
-
-There exists a set of state and action encoders that have the previously mentioned properties.
-The easiest encoders to create in this set are the ones where all states and actions are within the neighborhood of all other states and actions.
-The most interesting encoder is the one that differentiates states which behave similarly from ones that do not.
-So the encoder that we are interested in is the one where the set of states that are in a neighborhood is the minimal one possible under our other constraints.
-We can encourage our encoder to embody this property with this loss.
-
-$$\mathcal{L}_\text{disperse} = -\frac{1}{N}\sum\limits_i^N \text{sigmoid}\log(d({z^s_i}', {z^s_\mu}'))$$
-$${z^s_j}' \sim p({z^s_j}'|z^s_j,z^a_j)$$
-$$z^s_j \sim p(z^s_j | \mu=z^s_\mu, \sigma^2=\mathbf{I})$$
-
-
-There is one more problem, which corresponds to the degenerate solutions in which an entire neighborhood of actions all map to pretty much the same action, rather than to distinct but similar actions.
-To avoid this degenerate possibility we will add a force pushing all of the actions together
-
-$$\mathcal{L}_\text{condense} = \frac{1}{N}\sum\limits_i^N \text{sigmoid}\log(d({z^a_i}, {z^a_\mu}))$$
-$$z^a_j \sim p(z^a_j | \mu=z^a_\mu, \sigma^2=\mathbf{I})$$
-
-% Next we want to create a loss function which will enforce a temporal locality to our latent system.
-% We would like to create a system in our latent space which exhibits the property that a single step can never carry us to a very significantly different state.
-% In order to do this we will introduce an additional constraint which ensures that our states can change at most by a certain distance for every unit of elapsed time.
-% This however allows for a degenerate solution in which all states are very close together and so no states are significantly different from any other states.
-% To prevent this we will enforce that from every state we can always reach a state that is at this maximum distance away.
-% We will execute this by rolling out a policy which maximizes the step-to-step distance during a trajectory, and then minimizing this loss over that max step dist trajectory.
-
-% $$\mathcal{L}_\text{time} = -\sum\limits_i \text{sigmoid}(|d(z^s_{i+1},z^s_i) - \Delta t|)$$
-% $$z^s_{i+1} \sim p_\theta(z^s_{i+1}|s_{i+1})$$
-
-Embody the reality that sometimes some states simply have transitions that deviate a lot.\\
-We need a way to easily differentiate those actions from other ones.\\
-We could say that actions with a norm of less than 1 should not change the state much.\\
-Is there anything we can say about large norm actions?\\
-
-So ok here is our space:\\
-
-- Small actions make small state changes.\\
-- How does a small action decode if there is no small change action.\\
-- Potentially make a conditioned decoder to make possible actions.
-
-
-
-
-% Additionally we want gradient descent in the space of states and actions to achieve desired next states to be smooth.
-% In order to encourage the space to realize this property we will push nearby states and actions towards having similar jacobians through the latent forward model.
-% The way we will do this is by sampling \(N\) latent state action pairs in the neighborhood of a source latent state action \(z^{sa}_\mu\) and putting them into this list \(\mathbf{z}^{sa}_{0:N-1}\).
-% We will now take this list and feed each element through the latent forward model to get the predicted next latent states \(\mathbf{z}^{s'}_{0:N-1}\).
-% We will now take the jacobians of each latent state in \(\mathbf{z}^{s}_{0:N-1}\) w.r.t. the latent state actions and stack them into the tensor \(\mathbf{J}^{\frac{z^{s'}}{z^{sa}}}_{0:N-1}\)
-% We will now make an operation which is analogous taking the standard deviation of the jacobian matrices in the stack.
-% First we find the mean jacobian \(J^{\frac{{z^s}'}{z^{sa}}}_\mu = \frac{1}{N}\sum\limits_{i=0}^{N-1} \mathbf{J}^{\frac{{z^s}'}{z^{sa}}}_{i}\).
-% Now we can find the standard deviation of the jacobian matrices by taking the norm of the difference between each jacobian matrix and the mean jacobian matrix.
-
-% $$\mathcal{L_\text{gradients smooth}}= \sum\limits_i = \|J^{\frac{z^{s'}}{z^{sa}}}_\mu - J^{\frac{z^{s'}}{z^{sa}}}_i\|_F$$
-
-% $$\mathcal{L_\text{state regularization}}=-\sum\limits_i\max(\|{z_i^s}'-z_i^s\|-\lambda_\text{state}, 0)^2$$
-% $\mathcal{L}_\text{action regularization}=-\sum\limits_{i,j} \max(\|z'^s_{i,j}-z^s_i\| - \lambda_\text{act}, 0)^2, z_{i,j}'^s\sim p(z'^s_{i,j}|z^s_i,z^a_{i,j}),z^a_{i,j}\sim p(z^a_{i,j}|\mu=z^a_i, \sigma^2=\lambda_\text{act}^2)$
-
-\section{Interesting Questions}
-
+\subsection*{Details}
 \begin{itemize}
-    \item What happens if we use a very simple latent dynamics model? If this works then the encoder has to learn an encoding which knows about the dynamics of the system
-    \item What is different about evaluating the loss function on the generated trajectory vs. on the predicted trajectory? Will the controller game the system by making a trajectory generator input that causes the control to misbehave but generates a high reward?
+    \item The action encoder is conditioned on state because actions depend on context.
+    \item When writing the encoder, decoder, and distance metric \(\mathcal{E}\), \(\mathcal{D}\), and \(d\) the subscript will be omitted to simplify notation.
 \end{itemize}
 
-\section{Expirements}
+\section{Representation Properties}
 
-\begin{itemize}
-    \item Run simple trajectory optimization after training on various optimal policy rollouts in dm control problems.
-    \item Try unsupervised learning generating rollouts with bootstrapped trajectory optimization in brax ant.
-\end{itemize}
+To create an abstract representation of states and actions which are smooth, we search for a fixed number of state and action neighborhoods which obey the several constraints.
 
-% \section{Other Thoughts}
+\subsection*{Smoothness Constraint}
 
-% What does it mean to take a step of gradient descent in this latent space?
-% Let's start by examining the simplest case with just one single state.
+The purpose of this loss is to constrain the state and action spaces to be smooth.
+States and actions are defined to be in a neighborhood when if the distance metric evaluated on them is less than \(1\) i.e. \(z_i\) and \(z_j\) are in the same neighborhood if \(d(z_i, z_j) < 1\).\\
 
-% \section{Network Losses}
+\noindent
+The smoothness loss constrains that actions in the same neighborhood must affect states in a neighborhood similarly (the successor states must also be within the same neighborhood).\\
 
-% $\mathcal{L}_\text{action encoder}=\mathcal{L}_\text{forward} + \mathcal{L}_\text{smooth}+\mathcal{L}_\text{reconstruction}$
+\noindent
+Formally for any state action pairs \((s_i,a_i)\) and \((s_j,a_j)\) the next states \(T(s_i, a_i)\) and \(T(s_j, a_j)\) should be in the same neighborhood if \(s_i\) and \(s_j\), and \(a_i\) and \(a_j\) are in the same neighborhoods.
+\begin{align*}
+     & \forall (s_i, a_i) \in \mathcal{S} \times \mathcal{A},                            \\
+     & \forall (s_j, a_j) \in \mathcal{S} \times \mathcal{A}:                            \\
+     & \qquad d(s_i, s_j) < 1 \land d(a_i, a_j) < 1 \iff d(T(s_i, a_i), T(s_j, a_j)) < 1
+\end{align*}
 
-% Formalize more what you're trying to achieve here, what does SMOOTHNESS mean
+\subsection*{Radius Constraint}
 
-% Describe what expirements you're running in the overleaf
+The purpose of this constraint is to limit the number of state and action neighborhoods.
+This constraint is enforced by setting a radius for the latent state and action spaces \(r_s, r_a\) and defining that no two states or actions can be farther than this radius apart in the latent space.
 
-\section{Controller}
+Formally for any state or action pairs \(s_i, s_j\) or \(a_i, a_j\) we enforce that \(d(s_i, s_j) < r_s\) and \(d(a_i, a_j) < 1\)
+\begin{align*}
+     & \forall (s_i, s_j) \in \mathcal{S} \times \mathcal{S}, \\
+     & \forall (a_i, a_j) \in \mathcal{A} \times \mathcal{A}: \\
+     & \qquad d(s_i, s_j) < r_s \land d(a_i, a_j) < r_a
+\end{align*}
 
-\begin{definition}[Trajectory Generator]
-    $f: \mathcal{X} \rightarrow \mathcal{S}^H$
-\end{definition}
-\begin{definition}[Latent Dynamics]
-    $d: \mathcal{Z}^s \times \left(\mathcal{Z}^a\right)^H \rightarrow (\mathcal{Z}^s)^H$
-\end{definition}
-\begin{definition}[Cost Function]
-    $j: (\mathcal{S} \times \mathcal{A})^H \rightarrow \mathbb{R}$
-\end{definition}
-\begin{definition}[Control Plan]
-    A sequence $\mathbf{z^a} = \{z^a_0, z^a_1, ..., z^a_{H-1}\}$ where each $z^a_i \in \mathcal{Z}^a$ represents an action taken at time step $i$
-\end{definition}
-\begin{definition}[Control Cost]
-    $c(\mathbf{z}_{0:H-1}^s, \mathbf{z}_{0:H-1}^{s*}) = \sum\limits_{i=0}^{H-1} \| z^s_i\ - z^{s*}_i \|_2^2$
-\end{definition}
 
-\begin{algorithm}[H]
-    \caption{Latent Trajectory Optimization}
-    \label{alg:lto}
-    \begin{algorithmic}[1]
-        \Require Initial state \(s_0\), initial guess for actions \(\mathbf{z}_{1:H-1}^a\), initial guess for input \(\mathcal{X}\), cost function \(c(\cdot)\), learning rate \(\eta\)
-        \Ensure Optimal control sequence \(\mathbf{z}_{1:H-1}^{\text{opt}}\)
+\subsection*{Dispersion Objective}
 
-        \Function{LatentTrajectoryOptimization}{$s_0$, $\mathbf{z}_{1:H-1}^a$, $c(\cdot)$, $\mathcal{X}$, $\eta$}
-        % Algorithm steps
-        \Repeat
-        \State Generate Target States: \(\mathbf{z}_{1:H}^{s*} = f(\mathcal{X})\)
-        \State Do Latent Rollout: \(\mathbf{z}_{0:H-1}^s = d(s_0, \mathbf{z}_{0:H-1}^a)\)
-        \State Evaluate Control Cost: \(c = c(\mathbf{z}_{0:H-1}^s, \mathbf{z}_{0:H-1}^{s*})\)
-        \State Decode States and Actions: \(\mathbf{s}_{0:H-1} = g(\mathbf{z}_{0:H-1}^s), \mathbf{a}_{0:H-1} = g(\mathbf{z}_{0:H-1}^a)\)
-        \State Evaluate Cost Function: \(j = j(\mathbf{z}^s_{0:H-1}, )\)
-        \State Compute Gradients:
-        \State \hspace{\algorithmicindent} Reached States w.r.t. Target States: \(\nabla_{{\mathbf{z}^s}^*}\mathbf{z}^s = \frac{\partial d}{\partial{\mathbf{z}^s}^*}\)
-        \State \hspace{\algorithmicindent} Control Cost w.r.t. Reached States \(\nabla_{\mathbf{z}^s} c = \frac{\partial c}{\partial\mathbf{z}^s}\)
-        \State \hspace{\algorithmicindent} Control Cost w.r.t. Actions \(\nabla_{\mathbf{z}^a} c = \frac{\partial c}{\partial \mathbf{z}^a}\)
-        \State \hspace{\algorithmicindent} Cost Function w.r.t. Reached States \(\nabla_{\mathbf{z}^s} j = \frac{\partial j}{\partial \mathbf{z}^s}\)
-        \State Propagate gradients through trajectory generator: \(\nabla_{\mathcal{X}} = (\nabla_{\mathbf{z}^s} c + \nabla_{\mathbf{z}^s}j ) \left( \nabla_{{\mathbf{z}^s}^*}{\mathbf{z}^s} \right) \left(\frac{\partial f}{\partial \mathcal{X}} \right)\)
-        \State Adjust latent actions: \(\mathbf{z}_{1:H-1}^a = \mathbf{z}_{1:H-1}^a - \eta \nabla_{\mathbf{z}^a} c\)
-        \State Adjust input to trajectory generator: \(\mathcal{X} = \mathcal{X} - \eta \nabla_{\mathcal{X}}\)
-        \Until{Converged}
+The purpose of this objective is to encourage the action space to cover the next state possibilities evenly.\\
 
-        \State \Return \(\mathbf{z}_{1:H-1}^{\text{opt}} = \mathbf{z}_{1:H-1}^a\)
-        \EndFunction
-    \end{algorithmic}
-\end{algorithm}
+\noindent
+This is done by encouraging actions to be close together if they affect states similarly, allowing other actions to fill the gap.
+This objective complements the smoothness constraint which enforces that actions in a neighborhood will affect states similarly but does not enforce that actions in different neighborhoods will affect states differently.\\
+
+\noindent
+Formally the expected value of the difference between the distance between two latent actions and their respective successor latent states from the same source state over a uniform distribution in the latent action space should be minimized.
+\[\min\limits\underset{z_{a_i}, z_{a_j} \in \text{Uniform}(\mathcal{Z}_a),\; s \sim \mathcal{D}}{\mathbb{E}}\left[|d\big(F(\mathcal{E}(s), z_{a_i}), \mathcal{F}(\mathcal{E}(s), z_{a_j})\big) - d(z_{a_i}, z_{a_j})|\right]\]
+
+\section{Loss Functions}
+
+\section{Effects}
+
+If we have a trajectory guess as latent actions \(z_{a_{1:T}}\) and a cost function \(j\) which is Lipschitz continuous in the state space.
+Under the assumption that the jacobian of the encoder has a determinant less than \(1\) then then if the Lipschitz constant of \(j\) in the state space is \(L\) then the Lipschitz constant in latent state space is \(L_z < L\).\\
+
+\noindent
+Additionally since the encoder has the smoothness constraint enforced, we know that if we update only one latent action in our action sequence within the same neighborhood, the successor states will remain in the same neighborhood.
+Thus if there is a
 
 \end{document}

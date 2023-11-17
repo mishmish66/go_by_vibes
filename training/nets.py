@@ -8,7 +8,7 @@ from flax import linen as nn
 
 from einops import einsum, rearrange
 
-encoded_state_dim = 4
+encoded_state_dim = 3
 encoded_action_dim = 2
 
 
@@ -29,7 +29,7 @@ class FreqLayer(nn.Module):
 
         freq_result = rearrange([sins, cosines], "f w d -> (d f w)")
         sliced_freq_result = freq_result[: self.out_dim - d]
-        
+
         cat_result = jnp.concatenate([x, sliced_freq_result], axis=-1)
 
         return cat_result

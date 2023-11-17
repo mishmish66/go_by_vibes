@@ -46,7 +46,7 @@ class Finger:
         if env_config is None:
             env_config = cls.get_config()
 
-        action = jnp.nan_to_num(action)
+        # action = jnp.nan_to_num(action)
         ctrl = action
 
         data = mjx.make_data(cls.model)
@@ -133,7 +133,7 @@ class Finger:
         video_array = cls.host_make_video(states, env_config, fps)
 
         wandb.log({name: wandb.Video(video_array, fps=fps)})
-        
+
         print(f"Sent video {name}")
 
     @classmethod

@@ -29,7 +29,7 @@ def evaluate_actor(
     env_cls,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
-    target_q=-2.0,
+    target_q=1.0,
     big_step_size=0.5,
     big_steps=512,
     small_step_size=0.005,
@@ -80,7 +80,7 @@ def evaluate_actor(
         )[:-1]
 
         return latent_traj_cost_func(key, latent_states, latent_actions)
-
+    
     rng, key = jax.random.split(key)
     optimizer_actor, optimized_actions, (costs, big_active_inds) = make_optimize_actor(
         rng,
@@ -96,7 +96,7 @@ def evaluate_actor(
         big_post_steps=big_post_steps,
         small_post_steps=small_post_steps,
     )
-
+    
     rng, key = jax.random.split(key)
     result_states, result_actions = collect_rollout(
         start_state,
@@ -124,4 +124,4 @@ def evaluate_actor(
     info = info.add_plain_info("min expected cost", costs[min_idx])
     info = info.add_plain_info("final expected cost", costs[-1])
 
-    return (result_states, result_actions), info, optimized_actions
+    return (result_states, result_actions), info

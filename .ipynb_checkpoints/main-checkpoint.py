@@ -93,19 +93,25 @@ os.makedirs(checkpoint_dir)
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(2.5e-4)
+learning_rate = float(1e-4)
 every_k = 4
 
 env_cls = Finger
 
 env_config = env_cls.get_config()
 
-schedule = optax.cosine_onecycle_schedule(
-    8192,
-    peak_value=learning_rate,
-    pct_start=0.125,
-    div_factor=1.0,
-    final_div_factor=10.0,
+schedule = optax.join_schedules(
+    [
+        optax.cosine_onecycle_schedule(
+            4096,
+            peak_value=learning_rate,
+            pct_start=0.125,
+            div_factor=1.0,
+            final_div_factor=10.0,
+        ),
+        optax.linear_schedule(learning_rate / 10, learning_rate / 100, 32_768),
+    ],
+    [32_768],
 )
 
 vibe_config = TrainConfig.init(
@@ -133,9 +139,9 @@ vibe_config = TrainConfig.init(
     rollout_length=512,
     reconstruction_weight=1.0,
     forward_weight=1.0,
-    smoothness_weight=1.0,
-    condensation_weight=1.0,
-    dispersion_weight=1.0,
+    smoothness_weight=5.0,
+    condensation_weight=10.0,
+    dispersion_weight=10.0,
     inverse_reconstruction_gate_sharpness=1,
     inverse_forward_gate_sharpness=1,
     inverse_reconstruction_gate_center=-9,
@@ -369,25 +375,20 @@ def do_rollout(carry_pack, _):
             vibe_state,
         ) = carry_pack
 
-        if rollout_i % 1 == 0:
+        if rollout_i % 4 == 0:
             # Eval the actor every n epochs
             print("Evaluating actor")
             rng, key = jax.random.split(key)
             rngs = jax.random.split(rng, 32)
-
-            eval_actor_partial = jax.tree_util.Partial(
-                evaluate_actor,
-                start_state=start_state,
-                env_cls=env_cls,
-                vibe_state=vibe_state,
-                vibe_config=vibe_config,
-                big_steps=16,
-                small_steps=48,
-                big_post_steps=0,
-                small_post_steps=4,
+            (eval_states, _), infos = jax.vmap(
+                evaluate_actor, in_axes=(0, None, None, None, None)
+            )(
+                rngs,
+                start_state,
+                env_cls,
+                vibe_state,
+                vibe_config,
             )
-
-            (eval_states, _), infos, _ = jax.vmap(eval_actor_partial)(rngs)
 
             rng, key = jax.random.split(key)
             random_traj = jax.random.choice(rng, eval_states, axis=0)
