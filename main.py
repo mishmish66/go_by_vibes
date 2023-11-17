@@ -52,6 +52,7 @@ from policy import (
     make_target_conf_policy,
     make_piecewise_actor,
     random_action,
+    PresetActor,
 )  # , max_dist_policy
 
 import timeit
@@ -140,12 +141,12 @@ vibe_config = TrainConfig.init(
     inverse_forward_gate_sharpness=1,
     inverse_reconstruction_gate_center=-9,
     inverse_forward_gate_center=-18,
-    forward_gate_sharpness=1,
-    smoothness_gate_sharpness=1,
-    dispersion_gate_sharpness=1,
-    condensation_gate_sharpness=1,
-    forward_gate_center=-2,
-    smoothness_gate_center=-5,
+    forward_gate_sharpness=100,
+    smoothness_gate_sharpness=100,
+    dispersion_gate_sharpness=100,
+    condensation_gate_sharpness=100,
+    forward_gate_center=-5,
+    smoothness_gate_center=-14,
     dispersion_gate_center=-9,
     condensation_gate_center=-9,
 )
@@ -252,10 +253,14 @@ def do_rollout(carry_pack, _):
 
     def collect_rng_rollout(key):
         rng1, rng2, key = jax.random.split(key, 3)
+        random_latent_actions = jax.random.ball(
+            rng1, d=encoded_action_dim, p=1, shape=[vibe_config.rollout_length]
+        )
+        preset_actor = PresetActor(random_latent_actions)
         rollout_result = collect_rollout(
             start_state,
-            random_repeat_policy,
-            random_action(rng1, vibe_config.env_config.action_bounds),
+            preset_actor,
+            None,
             env_cls,
             vibe_state,
             vibe_config,

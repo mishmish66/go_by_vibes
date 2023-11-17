@@ -514,17 +514,17 @@ class Losses:
             self.forward_loss,
             train_config.smoothness_gate_sharpness,
             train_config.smoothness_gate_center,
-        )
+        ) * forward_gate
         dispersion_gate = make_gate_value(
             self.smoothness_loss,
             train_config.dispersion_gate_sharpness,
             train_config.dispersion_gate_center,
-        )
+        ) * smoothness_gate
         condensation_gate = make_gate_value(
             self.smoothness_loss,
             train_config.condensation_gate_sharpness,
             train_config.condensation_gate_center,
-        )
+        ) * smoothness_gate
 
         scaled_reconstruction_loss = (
             self.reconstruction_loss * train_config.reconstruction_weight
