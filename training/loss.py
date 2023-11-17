@@ -98,6 +98,7 @@ def loss_smoothness(
 def loss_disperse(
     key,
     latent_states,
+    latent_actions,
     vibe_state: VibeState,
     train_config: TrainConfig,
     samples=16,
@@ -106,8 +107,8 @@ def loss_disperse(
 
     Args:
         key (PRNGKey): The rng key to sample with
-        latent_states (Array): An (n x d_s) array of n latent states with dimensionality d_s
-        latent_actions (Array): An (n x d_a) array of n latent actions with dimensionality d_a
+        latent_states (Array): An (l x d_s) array of l latent states with dimensionality d_s
+        latent_actions (Array): An (l x d_a) array of l latent actions with dimensionality d_a
         samples (int, optional): The number of samples to take. Defaults to 16.
 
     Returns:
@@ -117,48 +118,49 @@ def loss_disperse(
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 2)
 
-    sampled_latent_start_states = jax.random.choice(
-        rngs[0], latent_states, shape=[samples], replace=True
-    )
-    uniformly_sampled_action_pairs = jax.random.ball(
-        rngs[1], d=encoded_action_dim, p=1, shape=[samples, 2]
+    latent_start_state = latent_states[0]
+    uniformly_sampled_actions = jax.random.ball(
+        rngs[1], d=encoded_action_dim, p=1, shape=[samples]
     )
 
-    def infer_pair(key, start_state, action_pair):
+    def infer(key, random_latent_action):
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, 2)
 
-        next_state_pair = jax.vmap(infer_states, in_axes=[0, None, 0, None, None])(
-            rngs,
-            start_state,
-            action_pair[..., None, :],
+        latent_actions_with_random = jnp.concatenate(
+            [latent_actions, random_latent_action[None, ...]], axis=0
+        )
+
+        next_states = infer_states(
+            rng,
+            latent_start_state,
+            latent_actions_with_random,
             vibe_state,
             train_config,
         )
-        return next_state_pair[..., 0, :]
+        return next_states[-1]
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, samples)
-    successor_pairs = jax.vmap(infer_pair)(
-        rngs, sampled_latent_start_states, uniformly_sampled_action_pairs
-    )
+    successors = jax.vmap(infer)(rngs, uniformly_sampled_actions)
 
-    action_pair_dists = jnp.linalg.norm(
-        uniformly_sampled_action_pairs[..., 0, :]
-        - uniformly_sampled_action_pairs[..., 1, :],
-        axis=-1,
-        ord=1,
+    pairwise_action_dists = jnp.linalg.norm(
+        latent_actions[..., None] - latent_actions[..., None, :], axis=-1, ord=1
     )
-    successor_pair_dists = jnp.linalg.norm(
-        successor_pairs[..., 0] - successor_pairs[..., 1],
-        axis=-1,
-        ord=1,
+    pairwise_action_dists = pairwise_action_dists[
+        jnp.triu_indices_from(pairwise_action_dists, k=1)
+    ]
+
+    pairwise_successor_dists = jnp.linalg.norm(
+        successors[..., None] - successors[..., None, :], axis=-1, ord=1
     )
+    pairwise_successor_dists = pairwise_successor_dists[
+        jnp.triu_indices_from(pairwise_successor_dists, k=1)
+    ]
 
-    dist_diff_mags = jnp.abs(successor_pair_dists - action_pair_dists)
+    dist_diff_mags = jnp.abs(pairwise_successor_dists - pairwise_action_dists)
 
-    jax.debug.print("action_pair_dists: {}", action_pair_dists)
-    jax.debug.print("successor_pair_dists: {}", successor_pair_dists)
+    # jax.debug.print("action_pair_dists: {}", action_pair_dists)
+    # jax.debug.print("successor_pair_dists: {}", successor_pair_dists)
 
     diff_norms = jnp.linalg.norm(dist_diff_mags, ord=1, axis=-1)
     diff_norm_logs = jnp.log(diff_norms + 1e-6)
@@ -268,18 +270,13 @@ def unordered_losses(
         target_radius=train_config.action_radius,
     )
 
-    dispersion_loss = loss_disperse(
-        rngs[3], latent_states, vibe_state, train_config, samples=128
-    )
     condensation_loss = state_condensation_loss + action_condensation_loss
 
-    result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
     result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
 
     return (
         Losses.init(
             reconstruction_loss=reconstruction_loss,
-            dispersion_loss=dispersion_loss,
             condensation_loss=condensation_loss,
         ),
         result_infos,
@@ -370,11 +367,25 @@ def composed_random_index_losses(
         neighborhood_next_states_prime,
     )
 
+    rng, key = jax.random.split(key)
+    dispersion_loss = loss_disperse(
+        rng,
+        slice_prev_latent_states,
+        slice_latent_actions,
+        vibe_state,
+        train_config,
+    )
+
+    result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
     result_infos = result_infos.add_loss_info("smoothness_loss", smoothness_loss)
     result_infos = result_infos.add_loss_info("forward_loss", forward_loss)
 
     return (
-        Losses.init(forward_loss=forward_loss, smoothness_loss=smoothness_loss),
+        Losses.init(
+            forward_loss=forward_loss,
+            smoothness_loss=smoothness_loss,
+            dispersion_loss=dispersion_loss,
+        ),
         result_infos,
     )
 
