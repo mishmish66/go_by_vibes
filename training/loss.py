@@ -510,21 +510,30 @@ class Losses:
             train_config.forward_gate_sharpness,
             train_config.forward_gate_center,
         )
-        smoothness_gate = make_gate_value(
-            self.forward_loss,
-            train_config.smoothness_gate_sharpness,
-            train_config.smoothness_gate_center,
-        ) * forward_gate
-        dispersion_gate = make_gate_value(
-            self.smoothness_loss,
-            train_config.dispersion_gate_sharpness,
-            train_config.dispersion_gate_center,
-        ) * smoothness_gate
-        condensation_gate = make_gate_value(
-            self.smoothness_loss,
-            train_config.condensation_gate_sharpness,
-            train_config.condensation_gate_center,
-        ) * smoothness_gate
+        smoothness_gate = (
+            make_gate_value(
+                self.forward_loss,
+                train_config.smoothness_gate_sharpness,
+                train_config.smoothness_gate_center,
+            )
+            * forward_gate
+        )
+        dispersion_gate = (
+            make_gate_value(
+                self.smoothness_loss,
+                train_config.dispersion_gate_sharpness,
+                train_config.dispersion_gate_center,
+            )
+            * smoothness_gate
+        )
+        condensation_gate = (
+            make_gate_value(
+                self.smoothness_loss,
+                train_config.condensation_gate_sharpness,
+                train_config.condensation_gate_center,
+            )
+            * smoothness_gate
+        )
 
         scaled_reconstruction_loss = (
             self.reconstruction_loss * train_config.reconstruction_weight
@@ -589,6 +598,27 @@ class Losses:
             self.dispersion_loss,
             self.condensation_loss,
         ]
+
+    def replace(self, **kwargs):
+        return Losses.init(
+            reconstruction_loss=kwargs.get(
+                "reconstruction_loss", self.reconstruction_loss
+            ),
+            forward_loss=kwargs.get("forward_loss", self.forward_loss),
+            smoothness_loss=kwargs.get("smoothness_loss", self.smoothness_loss),
+            dispersion_loss=kwargs.get("dispersion_loss", self.dispersion_loss),
+            condensation_loss=kwargs.get("condensation_loss", self.condensation_loss),
+        )
+
+    @classmethod
+    def from_list(cls, self):
+        return cls.init(
+            reconstruction_loss=self[0],
+            forward_loss=self[1],
+            smoothness_loss=self[2],
+            dispersion_loss=self[3],
+            condensation_loss=self[4],
+        )
 
     def total(self):
         return sum(self.to_list())

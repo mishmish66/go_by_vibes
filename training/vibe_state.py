@@ -75,6 +75,9 @@ class TrainConfig:
     inverse_reconstruction_gate_center: any
     inverse_forward_gate_center: any
 
+    forward_blend_gate_sharpness: any
+    forward_blend_gate_center: any
+
     forward_gate_sharpness: any
     smoothness_gate_sharpness: any
     dispersion_gate_sharpness: any
@@ -114,6 +117,8 @@ class TrainConfig:
         inverse_forward_gate_sharpness=1.0,
         inverse_reconstruction_gate_center=-5.0,
         inverse_forward_gate_center=-5.0,
+        forward_blend_gate_sharpness=1.0,
+        forward_blend_gate_center=0.0,
         forward_gate_sharpness=1.0,
         smoothness_gate_sharpness=1.0,
         dispersion_gate_sharpness=1.0,
@@ -150,6 +155,8 @@ class TrainConfig:
             inverse_forward_gate_sharpness=inverse_forward_gate_sharpness,
             inverse_reconstruction_gate_center=inverse_reconstruction_gate_center,
             inverse_forward_gate_center=inverse_forward_gate_center,
+            forward_blend_gate_sharpness=forward_blend_gate_sharpness,
+            forward_blend_gate_center=forward_blend_gate_center,
             forward_gate_sharpness=forward_gate_sharpness,
             smoothness_gate_sharpness=smoothness_gate_sharpness,
             dispersion_gate_sharpness=dispersion_gate_sharpness,
@@ -181,6 +188,8 @@ class TrainConfig:
             "inverse_forward_gate_sharpness": self.inverse_forward_gate_sharpness,
             "inverse_reconstruction_gate_center": self.inverse_reconstruction_gate_center,
             "inverse_forward_gate_center": self.inverse_forward_gate_center,
+            "forward_blend_gate_sharpness": self.forward_blend_gate_sharpness,
+            "forward_blend_gate_center": self.forward_blend_gate_center,
             "forward_gate_sharpness": self.forward_gate_sharpness,
             "smoothness_gate_sharpness": self.smoothness_gate_sharpness,
             "dispersion_gate_sharpness": self.dispersion_gate_sharpness,
@@ -219,6 +228,8 @@ class TrainConfig:
             "inverse_forward_gate_sharpness": self.inverse_forward_gate_sharpness,
             "inverse_reconstruction_gate_center": self.inverse_reconstruction_gate_center,
             "inverse_forward_gate_center": self.inverse_forward_gate_center,
+            "forward_blend_gate_sharpness": self.forward_blend_gate_sharpness,
+            "forward_blend_gate_center": self.forward_blend_gate_center,
             "forward_gate_sharpness": self.forward_gate_sharpness,
             "smoothness_gate_sharpness": self.smoothness_gate_sharpness,
             "dispersion_gate_sharpness": self.dispersion_gate_sharpness,
@@ -262,6 +273,8 @@ class TrainConfig:
                 "inverse_reconstruction_gate_center"
             ],
             inverse_forward_gate_center=aux["inverse_forward_gate_center"],
+            forward_blend_gate_sharpness=aux["forward_blend_gate_sharpness"],
+            forward_blend_gate_center=aux["forward_blend_gate_center"],
             forward_gate_sharpness=aux["forward_gate_sharpness"],
             smoothness_gate_sharpness=aux["smoothness_gate_sharpness"],
             dispersion_gate_sharpness=aux["dispersion_gate_sharpness"],
