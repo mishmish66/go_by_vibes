@@ -34,6 +34,7 @@ from training.vibe_state import (
 from training.nets import (
     StateEncoder,
     ActionEncoder,
+    StateSizer,
     TransitionModel,
     StateDecoder,
     ActionDecoder,
@@ -121,6 +122,7 @@ vibe_config = TrainConfig.init(
     ),
     state_encoder=StateEncoder(),
     action_encoder=ActionEncoder(),
+    state_sizer=StateSizer(),
     transition_model=TransitionModel(1e4, 6, 64, 4),
     state_decoder=StateDecoder(env_config.state_dim),
     action_decoder=ActionDecoder(env_config.act_dim),
@@ -130,7 +132,7 @@ vibe_config = TrainConfig.init(
     epochs=256,
     batch_size=128,
     every_k=every_k,
-    traj_per_rollout=4096,
+    traj_per_rollout=1024,
     rollout_length=512,
     reconstruction_weight=1.0,
     forward_weight=1.0,
@@ -273,7 +275,7 @@ def do_rollout(carry_pack, _):
 
     print("Collecting rng rollouts")
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
     states, actions = jax.vmap(collect_rng_rollout)(
         rngs,
     )

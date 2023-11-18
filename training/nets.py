@@ -67,6 +67,19 @@ class StateEncoder(nn.Module):
         return x
 
 
+class StateSizer(nn.Module):
+    @nn.compact
+    def __call__(self, x) -> Any:
+        x = nn.Dense(encoded_state_dim)(x)
+        x = nn.relu(x)
+        x = nn.Dense(encoded_state_dim)(x)
+        x = nn.relu(x)
+        x = nn.Dense(1)(x)
+        x = nn.softplus(x)
+        x = jnp.squeeze(x)
+        return x
+
+
 class StateDecoder(nn.Module):
     state_dim: any
 

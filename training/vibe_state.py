@@ -46,6 +46,7 @@ class TrainConfig:
 
     state_encoder: any
     action_encoder: any
+    state_sizer: any
     transition_model: any
     state_decoder: any
     action_decoder: any
@@ -68,6 +69,7 @@ class TrainConfig:
     smoothness_weight: any
     dispersion_weight: any
     condensation_weight: any
+    action_neighborhood_weight: any
 
     inverse_reconstruction_gate_sharpness: any
     inverse_forward_gate_sharpness: any
@@ -95,6 +97,7 @@ class TrainConfig:
         optimizer,
         state_encoder,
         action_encoder,
+        state_sizer,
         transition_model,
         state_decoder,
         action_decoder,
@@ -113,6 +116,7 @@ class TrainConfig:
         smoothness_weight=1.0,
         dispersion_weight=1.0,
         condensation_weight=1.0,
+        action_neighborhood_weight=1.0,
         inverse_reconstruction_gate_sharpness=1.0,
         inverse_forward_gate_sharpness=1.0,
         inverse_reconstruction_gate_center=-5.0,
@@ -133,6 +137,7 @@ class TrainConfig:
             optimizer=optimizer,
             state_encoder=state_encoder,
             action_encoder=action_encoder,
+            state_sizer=state_sizer,
             transition_model=transition_model,
             state_decoder=state_decoder,
             action_decoder=action_decoder,
@@ -151,6 +156,7 @@ class TrainConfig:
             smoothness_weight=smoothness_weight,
             dispersion_weight=dispersion_weight,
             condensation_weight=condensation_weight,
+            action_neighborhood_weight=action_neighborhood_weight,
             inverse_reconstruction_gate_sharpness=inverse_reconstruction_gate_sharpness,
             inverse_forward_gate_sharpness=inverse_forward_gate_sharpness,
             inverse_reconstruction_gate_center=inverse_reconstruction_gate_center,
@@ -184,6 +190,7 @@ class TrainConfig:
             "smoothness_weight": self.smoothness_weight,
             "dispersion_weight": self.dispersion_weight,
             "condensation_weight": self.condensation_weight,
+            "action_neighborhood_weight": self.action_neighborhood_weight,
             "inverse_reconstruction_gate_sharpness": self.inverse_reconstruction_gate_sharpness,
             "inverse_forward_gate_sharpness": self.inverse_forward_gate_sharpness,
             "inverse_reconstruction_gate_center": self.inverse_reconstruction_gate_center,
@@ -206,6 +213,7 @@ class TrainConfig:
             "optimizer": self.optimizer,
             "state_encoder": self.state_encoder,
             "action_encoder": self.action_encoder,
+            "state_sizer": self.state_sizer,
             "transition_model": self.transition_model,
             "state_decoder": self.state_decoder,
             "action_decoder": self.action_decoder,
@@ -224,6 +232,7 @@ class TrainConfig:
             "smoothness_weight": self.smoothness_weight,
             "dispersion_weight": self.dispersion_weight,
             "condensation_weight": self.condensation_weight,
+            "action_neighborhood_weight": self.action_neighborhood_weight,
             "inverse_reconstruction_gate_sharpness": self.inverse_reconstruction_gate_sharpness,
             "inverse_forward_gate_sharpness": self.inverse_forward_gate_sharpness,
             "inverse_reconstruction_gate_center": self.inverse_reconstruction_gate_center,
@@ -247,6 +256,7 @@ class TrainConfig:
             optimizer=aux["optimizer"],
             state_encoder=aux["state_encoder"],
             action_encoder=aux["action_encoder"],
+            state_sizer=aux["state_sizer"],
             transition_model=aux["transition_model"],
             state_decoder=aux["state_decoder"],
             action_decoder=aux["action_decoder"],
@@ -265,6 +275,7 @@ class TrainConfig:
             smoothness_weight=aux["smoothness_weight"],
             dispersion_weight=aux["dispersion_weight"],
             condensation_weight=aux["condensation_weight"],
+            action_neighborhood_weight=aux["action_neighborhood_weight"],
             inverse_reconstruction_gate_sharpness=aux[
                 "inverse_reconstruction_gate_sharpness"
             ],
@@ -291,6 +302,7 @@ class VibeState(struct.PyTreeNode):
 
     state_encoder_params: any
     action_encoder_params: any
+    state_sizer_params: any
     transition_model_params: any
     state_decoder_params: any
     action_decoder_params: any
@@ -300,7 +312,7 @@ class VibeState(struct.PyTreeNode):
     @classmethod
     def init(cls, key, train_config: TrainConfig):
         rng, key = jax.random.split(key)
-        rngs = jax.random.split(rng, 5)
+        rngs = jax.random.split(rng, 6)
 
         state_encoder_params = train_config.state_encoder.init(
             rngs[0],
@@ -311,19 +323,23 @@ class VibeState(struct.PyTreeNode):
             jnp.ones(train_config.env_config.act_dim),
             jnp.ones(encoded_state_dim),
         )
-        transition_model_params = train_config.transition_model.init(
+        state_sizer_params = train_config.state_sizer.init(
             rngs[2],
+            jnp.ones(encoded_state_dim),
+        )
+        transition_model_params = train_config.transition_model.init(
+            rngs[3],
             jnp.ones([encoded_state_dim]),
             jnp.ones([16, encoded_action_dim]),
             jnp.ones(16),
             10,
         )
         state_decoder_params = train_config.state_decoder.init(
-            rngs[3],
+            rngs[4],
             jnp.ones(encoded_state_dim),
         )
         action_decoder_params = train_config.action_decoder.init(
-            rngs[4],
+            rngs[5],
             jnp.ones(encoded_action_dim),
             jnp.ones(encoded_state_dim),
         )
@@ -332,6 +348,7 @@ class VibeState(struct.PyTreeNode):
             step=0,
             state_encoder_params=state_encoder_params,
             action_encoder_params=action_encoder_params,
+            state_sizer_params=state_sizer_params,
             transition_model_params=transition_model_params,
             state_decoder_params=state_decoder_params,
             action_decoder_params=action_decoder_params,
@@ -348,6 +365,7 @@ class VibeState(struct.PyTreeNode):
         return {
             "state_encoder_params": self.state_encoder_params,
             "action_encoder_params": self.action_encoder_params,
+            "state_sizer_params": self.state_sizer_params,
             "transition_model_params": self.transition_model_params,
             "state_decoder_params": self.state_decoder_params,
             "action_decoder_params": self.action_decoder_params,
@@ -357,6 +375,7 @@ class VibeState(struct.PyTreeNode):
         return self.replace(
             state_encoder_params=params_dict["state_encoder_params"],
             action_encoder_params=params_dict["action_encoder_params"],
+            state_sizer_params=params_dict["state_sizer_params"],
             transition_model_params=params_dict["transition_model_params"],
             state_decoder_params=params_dict["state_decoder_params"],
             action_decoder_params=params_dict["action_decoder_params"],

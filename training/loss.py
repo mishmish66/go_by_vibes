@@ -23,6 +23,7 @@ from .inference import (
     get_latent_state_prime_gaussians,
     get_state_space_gaussian,
     get_action_space_gaussian,
+    size_state_action_neighborhood,
     make_mask,
     encode_state,
     encode_action,
@@ -84,6 +85,12 @@ def loss_reconstruction(
     return -jnp.mean(probs)
 
 
+def loss_action_neighborhood_size(
+    action_neighborhood_sizes,
+):
+    return jnp.mean(jnp.log(action_neighborhood_sizes + 1e-6))
+
+
 def loss_smoothness(
     original_latent_states,
     neighborhood_result_latent_states,
@@ -98,6 +105,7 @@ def loss_smoothness(
 def loss_disperse(
     key,
     latent_states,
+    action_neighborhood_sizes,
     vibe_state: VibeState,
     train_config: TrainConfig,
     start_state_samples=16,
@@ -117,18 +125,14 @@ def loss_disperse(
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, 2)
 
-    sampled_latent_start_states = jax.random.choice(
-        rngs[0], latent_states, shape=[start_state_samples], replace=False
+    random_indices = jax.random.choice(
+        rngs[0], latent_states.shape[0], shape=[start_state_samples], replace=False
     )
 
-    uniformly_sampled_action_groups = jax.random.ball(
-        rngs[1],
-        d=encoded_action_dim,
-        p=1,
-        shape=[start_state_samples, random_action_samples],
-    )
+    sampled_latent_start_states = latent_states[random_indices]
+    sampled_action_neighborhood_sizes = action_neighborhood_sizes[random_indices]
 
-    def do_group(key, latent_start_state):
+    def do_group(key, latent_start_state, action_neighborhood_size):
         rng, key = jax.random.split(key)
         rngs = jax.random.split(rng, random_action_samples)
         uniformly_sampled_action_group = jax.random.ball(
@@ -169,12 +173,14 @@ def loss_disperse(
             jnp.triu_indices_from(pairwise_successor_dists, k=1)
         ]
 
-        return jnp.abs(pairwise_action_dists - pairwise_successor_dists)
+        return jnp.abs(
+            pairwise_action_dists / action_neighborhood_size - pairwise_successor_dists
+        )
 
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, start_state_samples)
     per_start_state_dist_diff_mags = jax.vmap(do_group)(
-        rngs, sampled_latent_start_states
+        rngs, sampled_latent_start_states, sampled_action_neighborhood_sizes
     )
 
     dist_diff_mags = jnp.ravel(per_start_state_dist_diff_mags)
@@ -241,6 +247,14 @@ def unordered_losses(
         (0, 0, None, None),
     )(rngs, states, vibe_state, train_config)
 
+    state_action_neighborhood_sizes = jax.vmap(
+        jax.tree_util.Partial(
+            size_state_action_neighborhood,
+            vibe_state=vibe_state,
+            vibe_config=train_config,
+        )
+    )(latent_states)
+
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[0])
     latent_actions = jax.vmap(
@@ -292,6 +306,7 @@ def unordered_losses(
     dispersion_loss = loss_disperse(
         rngs[3],
         latent_states,
+        state_action_neighborhood_sizes,
         vibe_state,
         train_config,
         start_state_samples=latent_states.shape[0],
@@ -302,11 +317,19 @@ def unordered_losses(
 
     result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
 
+    action_neighborhood_loss = loss_action_neighborhood_size(
+        state_action_neighborhood_sizes
+    )
+    result_infos = result_infos.add_loss_info(
+        "action_neighborhood_loss", action_neighborhood_loss
+    )
+
     return (
         Losses.init(
             reconstruction_loss=reconstruction_loss,
             condensation_loss=condensation_loss,
             dispersion_loss=dispersion_loss,
+            action_neighborhood_loss=action_neighborhood_loss,
         ),
         result_infos,
     )
@@ -337,6 +360,14 @@ def composed_random_index_losses(
         rngs, actions, prev_latent_states, vibe_state, train_config
     )
 
+    action_neighborhoods_sizes = jax.vmap(
+        jax.tree_util.Partial(
+            size_state_action_neighborhood,
+            vibe_state=vibe_state,
+            vibe_config=train_config,
+        )
+    )(prev_latent_states)
+
     # Generate a random index that is not in the last context_length
     slice_begin = jax.random.randint(key, [], 0, states.shape[0] - 1 - context_length)
 
@@ -350,6 +381,9 @@ def composed_random_index_losses(
 
     slice_latent_actions = jax.lax.dynamic_slice_in_dim(
         latent_actions, slice_begin, context_length
+    )
+    slice_action_neighborhoods_sizes = jax.lax.dynamic_slice_in_dim(
+        action_neighborhoods_sizes, slice_begin, context_length
     )
 
     slice_latent_start_state = slice_prev_latent_states[0]
@@ -404,7 +438,7 @@ def composed_random_index_losses(
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, slice_latent_actions.shape[0])
     neighborhood_latent_actions = jax.vmap(get_neighborhood_action)(
-        rngs, slice_latent_actions
+        rngs, slice_latent_actions, slice_action_neighborhoods_sizes
     )
 
     # Now we resample the latent actions
@@ -443,6 +477,7 @@ class Losses:
     smoothness_loss: any
     dispersion_loss: any
     condensation_loss: any
+    action_neighborhood_loss: any
 
     @classmethod
     def init(
@@ -452,6 +487,7 @@ class Losses:
         smoothness_loss=0,
         dispersion_loss=0,
         condensation_loss=0,
+        action_neighborhood_loss=0,
     ):
         return cls(
             reconstruction_loss=reconstruction_loss,
@@ -459,6 +495,7 @@ class Losses:
             smoothness_loss=smoothness_loss,
             dispersion_loss=dispersion_loss,
             condensation_loss=condensation_loss,
+            action_neighborhood_loss=action_neighborhood_loss,
         )
 
     def tree_flatten(self):
@@ -468,6 +505,7 @@ class Losses:
             self.smoothness_loss,
             self.dispersion_loss,
             self.condensation_loss,
+            self.action_neighborhood_loss,
         ], None
 
     @classmethod
@@ -478,6 +516,7 @@ class Losses:
             smoothness_loss=data[2],
             dispersion_loss=data[3],
             condensation_loss=data[4],
+            action_neighborhood_loss=data[5],
         )
 
     @classmethod
@@ -488,6 +527,8 @@ class Losses:
             smoothness_loss=a.smoothness_loss + b.smoothness_loss,
             dispersion_loss=a.dispersion_loss + b.dispersion_loss,
             condensation_loss=a.condensation_loss + b.condensation_loss,
+            action_neighborhood_loss=a.action_neighborhood_loss
+            + b.action_neighborhood_loss,
         )
 
     def scale_gate_info(self, train_config: TrainConfig):
@@ -544,6 +585,9 @@ class Losses:
         scaled_condensation_loss = (
             self.condensation_loss * train_config.condensation_weight
         )
+        scaled_action_neighborhood_loss = (
+            self.action_neighborhood_loss * train_config.action_neighborhood_weight
+        )
 
         scaled_gated_reconstruction_loss = (
             scaled_reconstruction_loss * inverse_reconstruction_gate
@@ -557,6 +601,9 @@ class Losses:
         scaled_gated_smoothness_loss = scaled_smoothness_loss * smoothness_gate
         scaled_gated_dispersion_loss = scaled_dispersion_loss * dispersion_gate
         scaled_gated_condensation_loss = scaled_condensation_loss * condensation_gate
+        scaled_gated_action_neighborhood_loss = (
+            scaled_action_neighborhood_loss * smoothness_gate
+        )
 
         total_loss = (
             scaled_reconstruction_loss
@@ -564,6 +611,7 @@ class Losses:
             + scaled_smoothness_loss
             + scaled_dispersion_loss
             + scaled_condensation_loss
+            + scaled_gated_action_neighborhood_loss
         )
 
         infos = infos.add_loss_info("total_loss", total_loss)
@@ -573,6 +621,9 @@ class Losses:
         infos = infos.add_loss_info("smoothness_loss", scaled_smoothness_loss)
         infos = infos.add_loss_info("dispersion_loss", scaled_dispersion_loss)
         infos = infos.add_loss_info("condensation_loss", scaled_condensation_loss)
+        infos = infos.add_loss_info(
+            "action_neighborhood_loss", scaled_action_neighborhood_loss
+        )
 
         infos = infos.add_plain_info(
             "inverse_reconstruction_gate", inverse_reconstruction_gate
@@ -589,6 +640,7 @@ class Losses:
             smoothness_loss=scaled_gated_smoothness_loss,
             dispersion_loss=scaled_gated_dispersion_loss,
             condensation_loss=scaled_gated_condensation_loss,
+            action_neighborhood_loss=scaled_gated_action_neighborhood_loss,
         )
 
         return result_loss, infos
@@ -600,6 +652,7 @@ class Losses:
             self.smoothness_loss,
             self.dispersion_loss,
             self.condensation_loss,
+            self.action_neighborhood_loss,
         ]
 
     def replace(self, **kwargs):
@@ -611,6 +664,9 @@ class Losses:
             smoothness_loss=kwargs.get("smoothness_loss", self.smoothness_loss),
             dispersion_loss=kwargs.get("dispersion_loss", self.dispersion_loss),
             condensation_loss=kwargs.get("condensation_loss", self.condensation_loss),
+            action_neighborhood_loss=kwargs.get(
+                "action_neighborhood_loss", self.action_neighborhood_loss
+            ),
         )
 
     @classmethod
@@ -621,6 +677,7 @@ class Losses:
             smoothness_loss=self[2],
             dispersion_loss=self[3],
             condensation_loss=self[4],
+            action_neighborhood_loss=self[5],
         )
 
     def total(self):

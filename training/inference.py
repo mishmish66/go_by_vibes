@@ -65,6 +65,16 @@ def encode_state(
     return latent_state
 
 
+def size_state_action_neighborhood(
+    latent_state, vibe_state: VibeState, vibe_config: TrainConfig
+):
+    state_size = vibe_config.state_sizer.apply(
+        vibe_state.state_sizer_params, latent_state
+    )
+
+    return state_size
+
+
 def get_neighborhood_state(key, latent_state):
     rng1, rng2, key = jax.random.split(key, 3)
     ball_sample = jax.random.ball(rng1, encoded_state_dim, p=1)
@@ -73,12 +83,14 @@ def get_neighborhood_state(key, latent_state):
     return latent_state + ball_sample * gauss_sample
 
 
-def get_neighborhood_action(key, latent_action):
-    rng1, rng2, key = jax.random.split(key, 3)
-    ball_sample = jax.random.ball(rng1, encoded_action_dim)
-    gauss_sample = jax.random.truncated_normal(rng2, 0, 1)
+def get_neighborhood_action(key, latent_action, action_neighborhood_size):
+    rng, key = jax.random.split(key)
 
-    return latent_action + ball_sample * gauss_sample
+    ball_sample = (
+        jax.random.ball(rng, d=encoded_action_dim, p=1) * action_neighborhood_size
+    )
+
+    return latent_action + ball_sample
 
 
 def get_latent_action_gaussian(
