@@ -153,8 +153,8 @@ def loss_disperse(
         )
 
         pairwise_action_dists = jnp.linalg.norm(
-            uniformly_sampled_action_group[..., None]
-            - uniformly_sampled_action_group[..., None, :],
+            uniformly_sampled_action_group[None]
+            - uniformly_sampled_action_group[:, None],
             axis=-1,
             ord=1,
         )
@@ -163,7 +163,7 @@ def loss_disperse(
         ]
 
         pairwise_successor_dists = jnp.linalg.norm(
-            next_states[..., None] - next_states[..., None, :], axis=-1, ord=1
+            next_states[None] - next_states[:, None], axis=-1, ord=1
         )
         pairwise_successor_dists = pairwise_successor_dists[
             jnp.triu_indices_from(pairwise_successor_dists, k=1)
@@ -548,8 +548,11 @@ class Losses:
         scaled_gated_reconstruction_loss = (
             scaled_reconstruction_loss * inverse_reconstruction_gate
         )
+        # Getting rid of the forward gate on the actual forward loss
         scaled_gated_forward_loss = (
-            scaled_forward_loss * forward_gate * inverse_forward_gate
+            # scaled_forward_loss * forward_gate * inverse_forward_gate
+            scaled_forward_loss
+            * inverse_forward_gate
         )
         scaled_gated_smoothness_loss = scaled_smoothness_loss * smoothness_gate
         scaled_gated_dispersion_loss = scaled_dispersion_loss * dispersion_gate
