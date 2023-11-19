@@ -88,7 +88,7 @@ def loss_reconstruction(
 def loss_action_neighborhood_size(
     action_neighborhood_sizes,
 ):
-    return jnp.mean(jnp.log(action_neighborhood_sizes + 1e-6))
+    return jnp.mean(action_neighborhood_sizes)
 
 
 def loss_smoothness(
@@ -188,9 +188,7 @@ def loss_disperse(
     # jax.debug.print("action_pair_dists: {}", action_pair_dists)
     # jax.debug.print("successor_pair_dists: {}", successor_pair_dists)
 
-    diff_norm_logs = jnp.log(dist_diff_mags + 1e-6)
-
-    return jnp.mean(diff_norm_logs)
+    return jnp.mean(dist_diff_mags)
 
 
 def loss_condense(
