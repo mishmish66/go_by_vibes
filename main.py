@@ -257,14 +257,13 @@ def do_rollout(carry_pack, _):
 
     def collect_rng_rollout(key):
         rng1, rng2, key = jax.random.split(key, 3)
-        random_latent_actions = jax.random.ball(
-            rng1, d=encoded_action_dim, p=1, shape=[vibe_config.rollout_length]
+        starting_random_action = random_action(
+            rng1, vibe_config.env_config.action_bounds
         )
-        preset_actor = PresetActor(random_latent_actions)
         rollout_result = collect_rollout(
             start_state,
-            preset_actor,
-            None,
+            random_repeat_policy,
+            starting_random_action,
             env_cls,
             vibe_state,
             vibe_config,
