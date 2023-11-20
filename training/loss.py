@@ -88,7 +88,7 @@ def loss_reconstruction(
 def loss_action_neighborhood_size(
     action_neighborhood_sizes,
 ):
-    return jnp.mean(action_neighborhood_sizes)
+    return jnp.mean(-action_neighborhood_sizes)
 
 
 def loss_smoothness(
