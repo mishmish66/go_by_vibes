@@ -25,7 +25,7 @@ from training.rollout import collect_rollout
 
 # from training.vibe_state import collect_latent_rollout
 
-from training.loss import sample_gaussian
+from training.loss import sample_gaussian, eval_log_gaussian
 
 from dataclasses import dataclass
 
@@ -363,6 +363,64 @@ def make_target_conf_policy(
         )
 
         return jnp.mean(uncertainty_error)
+
+    actor, init_carry, _ = make_optimize_actor(
+        key,
+        start_state,
+        cost_func,
+        vibe_state,
+        vibe_config,
+        env_cls,
+        big_steps=64,
+        small_steps=64,
+        small_step_size=0.05,
+        big_post_steps=0,
+        small_post_steps=0,
+    )
+
+    def noised_actor(
+        key,
+        state,
+        i,
+        carry,
+        vibe_state,
+        vibe_config,
+    ):
+        rng, key = jax.random.split(key)
+        action, next_guess = actor(rng, state, i, carry, vibe_state, vibe_config)
+
+        rng, key = jax.random.split(key)
+        noisy_action = sample_gaussian(
+            rng, jnp.concatenate([action, jnp.ones_like(action) * 1e-2])
+        )
+
+        return noisy_action, next_guess
+
+    return noised_actor, init_carry
+
+
+def make_finder_policy(
+    key,
+    start_state,
+    target_state,
+    vibe_state,
+    vibe_config,
+    env_cls,
+):
+    def cost_func(
+        latent_actions,
+        latent_start_state,
+        vibe_state,
+        vibe_config,
+        key,
+    ):
+        latent_state_prime_gaussians = infer_states(
+            latent_start_state, latent_actions, vibe_state, vibe_config
+        )
+
+        end_state_gaussian = latent_state_prime_gaussians[-1]
+
+        return eval_log_gaussian(end_state_gaussian, target_state)
 
     actor, init_carry, _ = make_optimize_actor(
         key,

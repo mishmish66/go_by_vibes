@@ -51,6 +51,7 @@ from policy import (
     random_policy,
     random_repeat_policy,
     make_target_conf_policy,
+    make_finder_policy,
     make_piecewise_actor,
     random_action,
     PresetActor,
@@ -176,7 +177,7 @@ wandb.init(
     # mode="disabled",
 )
 
-send_min_conf_video = env_cls.make_wandb_sender("min conf video")
+send_finder_video = env_cls.make_wandb_sender("finder video")
 send_random_video = env_cls.make_wandb_sender("random video")
 send_rng_conf_video = env_cls.make_wandb_sender("rng conf video")
 
@@ -205,11 +206,18 @@ def do_rollout(carry_pack, _):
         (vibe_state, rollout_i, steps),
     )
 
-    def collect_conf_rollout(key):
+    def collect_finder_rollout(key):
         rng, key = jax.random.split(key)
-        actor, init_carry = make_target_conf_policy(
+        target_state = (
+            jax.random.ball(rng, d=encoded_state_dim, p=1)
+            * vibe_config.state_radius
+            * 1.25
+        )
+        rng, key = jax.random.split(key)
+        actor, init_carry = make_finder_policy(
             rng,
             start_state,
+            target_state,
             vibe_state,
             vibe_config,
             env_cls,
@@ -274,50 +282,32 @@ def do_rollout(carry_pack, _):
 
         return rollout_result
 
-    print("Collecting conf rollouts")
+    print("Collecting finder rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
-    conf_states, conf_actions = jax.vmap(collect_conf_rollout)(
+    finder_states, finder_actions = jax.vmap(collect_finder_rollout)(
         rngs,
     )
 
-    print("Collecting rng conf rollouts")
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
-    rng_conf_states, rng_conf_actions = jax.vmap(collect_rng_conf_rollout)(
-        rngs,
-    )
-
-    print("Collecting rng rollouts")
+    print("Collecting backup rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
     backup_states, backup_actions = jax.vmap(collect_rng_rollout)(
         rngs,
     )
 
-    rng_states, rng_actions = (
-        backup_states[conf_states.shape[0] + rng_conf_states.shape[0] :],
-        backup_actions[conf_states.shape[0] + rng_conf_states.shape[0] :],
+    bad_samples = reduce(jnp.isnan(finder_states), "d ... -> d", "max") + reduce(
+        jnp.isnan(finder_actions), "d ... -> d", "max"
     )
 
     states, actions = (
-        jnp.concatenate([conf_states, rng_conf_states, rng_states]),
-        jnp.concatenate([conf_actions, rng_conf_actions, rng_actions]),
+        jnp.where(bad_samples[..., None, None], finder_states, backup_states),
+        jnp.where(bad_samples[..., None, None], finder_actions, backup_actions),
     )
 
-    bad_samples = reduce(jnp.isnan(states), "d ... -> d", "max") + reduce(
-        jnp.isnan(actions), "d ... -> d", "max"
-    )
+    rollout_result = (states, actions)
 
-    bupped_states, bupped_actions = (
-        jnp.where(bad_samples[..., None, None], states, backup_states),
-        jnp.where(bad_samples[..., None, None], actions, backup_actions),
-    )
-
-    rollout_result = (bupped_states, bupped_actions)
-
-    send_min_conf_video(jnp.nan_to_num(conf_states[0]), env_config)
-    send_rng_conf_video(jnp.nan_to_num(rng_conf_states[0]), env_config)
+    send_finder_video(jnp.nan_to_num(finder_states[0]), env_config)
     send_random_video(jnp.nan_to_num(backup_states[-1]), env_config)
 
     # from jax import config
