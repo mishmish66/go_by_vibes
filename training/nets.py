@@ -214,9 +214,8 @@ class TransformerLayer(nn.Module):
     def __call__(self, queries, keys_values, mask=None):
         x = queries
         x = x + self.attention(
-            inputs_q=queries,
-            inputs_k=keys_values,
-            inputs_v=keys_values,
+            queries,
+            keys_values,
             mask=mask,
         )
         u = self.mlp_up(x)

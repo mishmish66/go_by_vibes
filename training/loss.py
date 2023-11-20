@@ -340,7 +340,7 @@ def composed_random_index_losses(
     actions,
     vibe_state: VibeState,
     train_config: TrainConfig,
-    context_length=128,
+    context_length=509,
 ):
     result_infos = Infos.init()
 

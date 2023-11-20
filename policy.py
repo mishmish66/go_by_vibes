@@ -378,25 +378,7 @@ def make_target_conf_policy(
         small_post_steps=0,
     )
 
-    def noised_actor(
-        key,
-        state,
-        i,
-        carry,
-        vibe_state,
-        vibe_config,
-    ):
-        rng, key = jax.random.split(key)
-        action, next_guess = actor(rng, state, i, carry, vibe_state, vibe_config)
-
-        rng, key = jax.random.split(key)
-        noisy_action = sample_gaussian(
-            rng, jnp.concatenate([action, jnp.ones_like(action) * 1e-2])
-        )
-
-        return noisy_action, next_guess
-
-    return noised_actor, init_carry
+    return actor, init_carry
 
 
 def make_finder_policy(
