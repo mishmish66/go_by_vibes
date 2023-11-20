@@ -401,9 +401,11 @@ def make_finder_policy(
             latent_start_state, latent_actions, vibe_state, vibe_config
         )
 
-        end_state_gaussian = latent_state_prime_gaussians[-1]
+        log_gauss_vals = jax.vmap(
+            jax.tree_util.Partial(eval_log_gaussian, point=target_state)
+        )(latent_state_prime_gaussians)
 
-        return eval_log_gaussian(end_state_gaussian, target_state)
+        return jnp.mean(log_gauss_vals)
 
     actor, init_carry, _ = make_optimize_actor(
         key,
