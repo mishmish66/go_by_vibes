@@ -362,10 +362,10 @@ def make_target_conf_policy(
         vibe_state,
         vibe_config,
         env_cls,
-        big_steps=256,
+        big_steps=64,
         small_steps=64,
         big_post_steps=0,
-        small_post_steps=8,
+        small_post_steps=0,
     )
 
     def noised_actor(

@@ -20,7 +20,7 @@ from training.infos import Infos
 
 import shutil
 
-from einops import einops, einsum
+from einops import einops, einsum, reduce
 import matplotlib.pyplot as plt
 
 from embeds import EmbeddingLayer
@@ -272,16 +272,51 @@ def do_rollout(carry_pack, _):
 
         return rollout_result
 
-    print("Collecting rng rollouts")
+    print("Collecting conf rollouts")
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
-    states, actions = jax.vmap(collect_rng_rollout)(
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
+    conf_states, conf_actions = jax.vmap(collect_conf_rollout)(
         rngs,
     )
 
-    rollout_result = (states, actions)
+    print("Collecting rng conf rollouts")
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 4)
+    rng_conf_states, rng_conf_actions = jax.vmap(collect_rng_conf_rollout)(
+        rngs,
+    )
 
-    send_random_video(jnp.nan_to_num(states[0]), env_config)
+    print("Collecting rng rollouts")
+    rng, key = jax.random.split(key)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
+    backup_states, backup_actions = jax.vmap(collect_rng_rollout)(
+        rngs,
+    )
+
+    rng_states, rng_actions = (
+        backup_states[conf_states.shape[0] + rng_conf_states.shape[0] :],
+        backup_actions[conf_states.shape[0] + rng_conf_states.shape[0] :],
+    )
+
+    states, actions = (
+        jnp.concatenate([conf_states, rng_conf_states, rng_states]),
+        jnp.concatenate([conf_actions, rng_conf_actions, rng_actions]),
+    )
+
+    bad_samples = reduce(jnp.isnan(states), "d ... -> d", "max") + reduce(
+        jnp.isnan(actions), "d ... -> d", "max"
+    )
+
+    bupped_states, bupped_actions = (
+        jnp.where(bad_samples[..., None, None], states, backup_states),
+        jnp.where(bad_samples[..., None, None], actions, backup_actions),
+    )
+
+    rollout_result = (bupped_states, bupped_actions)
+
+    send_min_conf_video(jnp.nan_to_num(conf_states[0]), env_config)
+    send_rng_conf_video(jnp.nan_to_num(rng_conf_states[0]), env_config)
+    send_random_video(jnp.nan_to_num(backup_states[-1]), env_config)
 
     # from jax import config
     # config.update("jax_disable_jit", True)
@@ -392,7 +427,7 @@ def do_rollout(carry_pack, _):
                 big_steps=16,
                 small_steps=48,
                 big_post_steps=0,
-                small_post_steps=4,
+                small_post_steps=8,
             )
 
             (eval_states, _), infos, _, _ = jax.vmap(eval_actor_partial)(rngs)
