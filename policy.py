@@ -198,7 +198,16 @@ def optimize_actions(
         act_grad_future = einsum(act_grad, causal_mask, "i ..., i -> i ...")
 
         next_plan = current_plan - small_step_size * act_grad_future
-        return next_plan, cost
+
+        next_plan_norms = jnp.linalg.norm(next_plan, ord=1, axis=-1)
+        next_plan_is_in_space = next_plan_norms < vibe_config.action_radius
+        clip_scale = jnp.where(
+            next_plan_is_in_space,
+            jnp.ones_like(next_plan_norms),
+            next_plan_norms,
+        )
+        next_plan_clipped = next_plan / clip_scale[..., None]
+        return next_plan_clipped, cost
 
     rng, key = jax.random.split(key)
     scan_rng = jax.random.split(rng, big_steps)
