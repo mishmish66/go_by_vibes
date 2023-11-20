@@ -245,14 +245,6 @@ def unordered_losses(
         (0, 0, None, None),
     )(rngs, states, vibe_state, train_config)
 
-    state_action_neighborhood_sizes = jax.vmap(
-        jax.tree_util.Partial(
-            size_state_action_neighborhood,
-            vibe_state=vibe_state,
-            vibe_config=train_config,
-        )
-    )(latent_states)
-
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[0])
     latent_actions = jax.vmap(
@@ -301,10 +293,25 @@ def unordered_losses(
         target_radius=train_config.action_radius,
     )
 
+    rng, key = jax.random.split(key)
+    random_latent_states = jax.random.ball(
+        rng,
+        d=encoded_state_dim,
+        p=1,
+        shape=[latent_states.shape[0] // 4],
+    )
+    random_state_neighborhood_sizes = jax.vmap(
+        jax.tree_util.Partial(
+            size_state_action_neighborhood,
+            vibe_state=vibe_state,
+            vibe_config=train_config,
+        )
+    )(random_latent_states)
+
     dispersion_loss = loss_disperse(
         rngs[3],
-        latent_states,
-        state_action_neighborhood_sizes,
+        random_latent_states,
+        random_state_neighborhood_sizes,
         vibe_state,
         train_config,
         start_state_samples=latent_states.shape[0] // 4,
@@ -317,7 +324,7 @@ def unordered_losses(
     result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
 
     action_neighborhood_loss = loss_action_neighborhood_size(
-        state_action_neighborhood_sizes
+        random_state_neighborhood_sizes
     )
     result_infos = result_infos.add_loss_info(
         "action_neighborhood_loss", action_neighborhood_loss
