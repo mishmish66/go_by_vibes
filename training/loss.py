@@ -307,7 +307,8 @@ def unordered_losses(
         state_action_neighborhood_sizes,
         vibe_state,
         train_config,
-        start_state_samples=latent_states.shape[0],
+        start_state_samples=latent_states.shape[0] // 4,
+        random_action_samples=4,
     )
     result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
 

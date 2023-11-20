@@ -129,11 +129,13 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=256,
-    epochs=256,
+    epochs=64,
     batch_size=128,
     every_k=every_k,
-    traj_per_rollout=1024,
+    traj_per_rollout=512,
     rollout_length=512,
+    state_radius=2.0,
+    action_radius=2.0,
     reconstruction_weight=1.0,
     forward_weight=1.0,
     smoothness_weight=1.0,
@@ -193,8 +195,8 @@ def do_rollout(carry_pack, _):
 
     def checkpoint_for_id_tap(tap_pack, _):
         vibe_state, rollout_i, steps = tap_pack
-        checkpoint_path = os.path.join(
-            checkpoint_dir, f"checkpoint_r{rollout_i}_s{steps}"
+        checkpoint_path = os.path.abspath(
+            os.path.join(checkpoint_dir, f"checkpoint_r{rollout_i}_s{steps}")
         )
         checkpointer.save(checkpoint_path, vibe_state)
 
@@ -412,7 +414,7 @@ def do_rollout(carry_pack, _):
             vibe_state,
         ) = carry_pack
 
-        if rollout_i % 1 == 0:
+        if rollout_i % 4 == 0:
             # Eval the actor every n epochs
             print("Evaluating actor")
             rng, key = jax.random.split(key)
