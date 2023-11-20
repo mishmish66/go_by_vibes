@@ -405,7 +405,7 @@ def make_finder_policy(
             jax.tree_util.Partial(eval_log_gaussian, point=target_state)
         )(latent_state_prime_gaussians)
 
-        return jnp.mean(log_gauss_vals)
+        return jnp.mean(-log_gauss_vals)
 
     actor, init_carry, _ = make_optimize_actor(
         key,
