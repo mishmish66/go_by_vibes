@@ -414,7 +414,8 @@ def make_finder_policy(
         vibe_config,
         key,
     ):
-        latent_state_prime_gaussians = infer_states(
+        rng, key = jax.random.split(key)
+        latent_state_prime_gaussians = get_latent_state_prime_gaussians(
             latent_start_state, latent_actions, vibe_state, vibe_config
         )
 

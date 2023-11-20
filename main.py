@@ -129,11 +129,11 @@ vibe_config = TrainConfig.init(
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
     seed=seed,
-    rollouts=256,
+    rollouts=64,
     epochs=256,
     batch_size=128,
     every_k=every_k,
-    traj_per_rollout=512,
+    traj_per_rollout=256,
     rollout_length=512,
     state_radius=3.0,
     action_radius=2.0,
@@ -284,7 +284,7 @@ def do_rollout(carry_pack, _):
 
     print("Collecting finder rollouts")
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout // 2)
+    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
     finder_states, finder_actions = jax.vmap(collect_finder_rollout)(
         rngs,
     )
