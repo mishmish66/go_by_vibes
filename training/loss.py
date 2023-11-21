@@ -54,18 +54,27 @@ def eval_log_gaussian(gaussian, point):
 
 
 def loss_forward(
+    key,
     inferred_latent_states_prime_gauss_params,
     gt_next_latent_states,
 ):
-    log_probs = jax.vmap(
-        eval_log_gaussian,
-        (0, 0),
-    )(inferred_latent_states_prime_gauss_params, gt_next_latent_states)
+    rng, key = jax.random.split(key)
+    sampled_inferred = sample_gaussian(rng, inferred_latent_states_prime_gauss_params)
 
-    return jnp.mean(-log_probs)
+    msle = jnp.mean(jnp.log(jnp.square(sampled_inferred - gt_next_latent_states) + 1))
+
+    return msle
+
+    # log_probs = jax.vmap(
+    #     eval_log_gaussian,
+    #     (0, 0),
+    # )(inferred_latent_states_prime_gauss_params, gt_next_latent_states)
+
+    # return jnp.mean(-log_probs)
 
 
 def loss_reconstruction(
+    key,
     gaussian_params,
     gt_value,
 ):
@@ -78,11 +87,17 @@ def loss_reconstruction(
     Returns:
         Scalar: The mean negative log value of the gaussian at the gt points.
     """
-    probs = jax.vmap(
-        eval_log_gaussian,
-        (0, 0),
-    )(gaussian_params, gt_value)
-    return -jnp.mean(probs)
+    rng, key = jax.random.split(key)
+    sampled_inferred = sample_gaussian(rng, gaussian_params)
+
+    msle = jnp.mean(jnp.log(jnp.square(sampled_inferred - gt_value) + 1))
+    return msle
+
+    # probs = jax.vmap(
+    #     eval_log_gaussian,
+    #     (0, 0),
+    # )(gaussian_params, gt_value)
+    # return -jnp.mean(probs)
 
 
 def loss_action_neighborhood_size(
@@ -262,11 +277,15 @@ def unordered_losses(
     )(latent_actions, latent_states, vibe_state, train_config)
 
     # Evaluate reconstruction loss:
+    rng, key = jax.random.split(key)
     state_reconstruction_loss = loss_reconstruction(
+        rng,
         state_space_gaussians,
         states,
     )
+    rng, key = jax.random.split(key)
     action_reconstruction_loss = loss_reconstruction(
+        rng,
         action_space_gaussians,
         actions,
     )
@@ -403,8 +422,9 @@ def composed_random_index_losses(
     )
 
     # Evaluate the forward loss
+    rng, key = jax.random.split(key)
     forward_loss = loss_forward(
-        slice_latent_state_prime_gaussians, slice_next_latent_states
+        rng, slice_latent_state_prime_gaussians, slice_next_latent_states
     )
 
     # Now lets predict a bunch of single state next latent states
@@ -428,8 +448,9 @@ def composed_random_index_losses(
     )
 
     # Now we evaluate the single step forward loss
+    rng, key = jax.random.split(key)
     single_step_forward_loss = loss_forward(
-        random_state_prime_gaussians[..., 0, :], random_next_latent_states
+        rng, random_state_prime_gaussians[..., 0, :], random_next_latent_states
     )
 
     forward_loss = forward_loss + single_step_forward_loss
