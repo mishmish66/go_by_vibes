@@ -37,7 +37,7 @@ class FreqLayer(nn.Module):
 
 class StateEncoder(nn.Module):
     def setup(self):
-        self.freq_layer = FreqLayer(out_dim=64)
+        self.freq_layer = FreqLayer(out_dim=128)
 
         self.dense_layers = [
             nn.Dense(dim, name=f"FC{i}")
