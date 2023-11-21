@@ -102,13 +102,13 @@ env_cls = Finger
 
 env_config = env_cls.get_config()
 
-schedule = learning_rate # optax.cosine_onecycle_schedule(
+schedule = learning_rate  # optax.cosine_onecycle_schedule(
 #    8192,
 #    peak_value=learning_rate,
 #    pct_start=0.3,
 #    div_factor=25.0,
 #    final_div_factor=10000.0,
-#)
+# )
 
 vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
@@ -141,18 +141,12 @@ vibe_config = TrainConfig.init(
     smoothness_weight=1.0,
     condensation_weight=1.0,
     dispersion_weight=1.0,
-    inverse_reconstruction_gate_sharpness=1,
-    inverse_forward_gate_sharpness=1,
-    inverse_reconstruction_gate_center=-100,
-    inverse_forward_gate_center=-100,
-    forward_blend_gate_sharpness=1,
-    forward_blend_gate_center=5,
-    forward_gate_sharpness=5,
-    smoothness_gate_sharpness=1,
+    forward_gate_sharpness=4096,
+    smoothness_gate_sharpness=4096,
     dispersion_gate_sharpness=1,
     condensation_gate_sharpness=1,
-    forward_gate_center=-50,
-    smoothness_gate_center=-50,
+    forward_gate_center=0,
+    smoothness_gate_center=0,
     dispersion_gate_center=-9,
     condensation_gate_center=-9,
 )

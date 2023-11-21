@@ -561,18 +561,6 @@ class Losses:
     def scale_gate_info(self, train_config: TrainConfig):
         infos = Infos.init()
 
-        inverse_reconstruction_gate = 1 - make_gate_value(
-            self.reconstruction_loss,
-            train_config.inverse_reconstruction_gate_sharpness,
-            train_config.inverse_reconstruction_gate_center,
-        )
-
-        inverse_forward_gate = 1 - make_gate_value(
-            self.forward_loss,
-            train_config.inverse_forward_gate_sharpness,
-            train_config.inverse_forward_gate_center,
-        )
-
         forward_gate = make_gate_value(
             self.reconstruction_loss,
             train_config.forward_gate_sharpness,
@@ -616,15 +604,6 @@ class Losses:
             self.action_neighborhood_loss * train_config.action_neighborhood_weight
         )
 
-        scaled_gated_reconstruction_loss = (
-            scaled_reconstruction_loss * inverse_reconstruction_gate
-        )
-        # Getting rid of the forward gate on the actual forward loss
-        scaled_gated_forward_loss = (
-            # scaled_forward_loss * forward_gate * inverse_forward_gate
-            scaled_forward_loss
-            * inverse_forward_gate
-        )
         scaled_gated_smoothness_loss = scaled_smoothness_loss * smoothness_gate
         scaled_gated_dispersion_loss = scaled_dispersion_loss * dispersion_gate
         scaled_gated_condensation_loss = scaled_condensation_loss * condensation_gate
@@ -652,18 +631,14 @@ class Losses:
             "action_neighborhood_loss", scaled_action_neighborhood_loss
         )
 
-        infos = infos.add_plain_info(
-            "inverse_reconstruction_gate", inverse_reconstruction_gate
-        )
-        infos = infos.add_plain_info("inverse_forward_gate", inverse_forward_gate)
         infos = infos.add_plain_info("forward_gate", forward_gate)
         infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
         infos = infos.add_plain_info("dispersion_gate", dispersion_gate)
         infos = infos.add_plain_info("condensation_gate", condensation_gate)
 
         result_loss = Losses.init(
-            reconstruction_loss=scaled_gated_reconstruction_loss,
-            forward_loss=scaled_gated_forward_loss,
+            reconstruction_loss=scaled_reconstruction_loss,
+            forward_loss=scaled_forward_loss,
             smoothness_loss=scaled_gated_smoothness_loss,
             dispersion_loss=scaled_gated_dispersion_loss,
             condensation_loss=scaled_gated_condensation_loss,
@@ -712,4 +687,5 @@ class Losses:
 
 
 def make_gate_value(x, sharpness, center):
-    return jax.lax.stop_gradient(1 / (1 + jnp.exp(sharpness * (x - center))))
+    sgx = jax.lax.stop_gradient(x)
+    return (1 + jnp.exp(sharpness * (sgx - center))) ** (-1 / 16)
