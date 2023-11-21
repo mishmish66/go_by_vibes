@@ -95,7 +95,7 @@ os.makedirs(checkpoint_dir)
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(5.0e-5)
+learning_rate = float(2.5e-4)
 every_k = 4
 
 env_cls = Finger
