@@ -68,9 +68,11 @@ def encode_state(
 def size_state_action_neighborhood(
     latent_state, vibe_state: VibeState, vibe_config: TrainConfig
 ):
-    state_size = vibe_config.state_sizer.apply(
+    state_size_unlimited = vibe_config.state_sizer.apply(
         vibe_state.state_sizer_params, latent_state
     )
+
+    state_size = jnp.clip(state_size_unlimited, 0, vibe_config.action_radius)
 
     return state_size
 
