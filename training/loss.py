@@ -137,7 +137,7 @@ def loss_disperse(
     rngs = jax.random.split(rng, 2)
 
     sampled_latent_states = jax.random.choice(
-        rngs[0], latent_states.shape[0], shape=[state_samples], replace=False
+        rngs[0], latent_states, shape=[state_samples], replace=False
     )
 
     pairwise_diffs = sampled_latent_states[None] - sampled_latent_states[:, None]
