@@ -69,23 +69,6 @@ seed = 1
 
 # Generate random key
 key = jax.random.PRNGKey(seed)
-
-### Set up physics sim stuff
-rng, key = jax.random.split(key)
-
-mass_matrix = jax.jit(mass_matrix)
-bias_forces = jax.jit(bias_forces)
-
-mass_config = jnp.array([1.0, 0.25, 0.25, 0.04, 0.01, 0.01])
-shape_config = jnp.array([1.0, 0.25, 0.25])
-
-rng, key = jax.random.split(key)
-home_q = jnp.array([0, 0, -0.0, 0.5, -0.5, -0.5, 0.5], dtype=jnp.float32)
-start_q = home_q + jax.random.uniform(rng, shape=(7,), minval=-0.4, maxval=0.4)
-qd = jnp.array([0, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)
-
-### Set up RL stuff
-
 checkpoint_dir = "checkpoints"
 
 # clear checkpoints
