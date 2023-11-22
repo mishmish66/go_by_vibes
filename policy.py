@@ -241,42 +241,12 @@ def make_optimize_actor(
     small_post_steps=48,
 ):
     rng, key = jax.random.split(key)
-    latent_start_state = encode_state(rng, start_state, vibe_state, vibe_config)
-
-    rng, key = jax.random.split(key)
     random_latent_actions = jax.random.ball(
         rng,
         d=encoded_action_dim,
         p=1,
         shape=[vibe_config.rollout_length],
     )
-    rng, key = jax.random.split(key)
-    random_latent_states = infer_states(
-        rng,
-        latent_start_state,
-        random_latent_actions,
-        vibe_state,
-        vibe_config,
-    )
-    # random_traj_states, random_traj_actions = make_random_traj(
-    #     rng,
-    #     start_state,
-    #     vibe_state,
-    #     vibe_config,
-    #     env_cls,
-    # )
-
-    # rng, key = jax.random.split(key)
-    # rngs = jax.random.split(rng, random_traj_states.shape[0])
-    # random_latent_states = jax.vmap(encode_state, (0, 0, None, None))(
-    #     rngs, random_traj_states, vibe_state, vibe_config
-    # )
-
-    # rng, key = jax.random.split(key)
-    # rngs = jax.random.split(rng, random_traj_states.shape[0])
-    # random_latent_actions = jax.vmap(encode_action, (0, 0, 0, None, None))(
-    #     rngs, random_traj_actions, random_latent_states, vibe_state, vibe_config
-    # )
 
     rng, key = jax.random.split(key)
     optimized_actions, (costs, big_active_inds) = optimize_actions(
