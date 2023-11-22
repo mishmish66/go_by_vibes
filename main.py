@@ -109,7 +109,7 @@ schedule = optax.cosine_onecycle_schedule(
     pct_start=0.3,
     div_factor=25.0,
     final_div_factor=10.0,
- )
+)
 
 vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
@@ -410,10 +410,10 @@ def do_rollout(carry_pack, _):
                 env_cls=env_cls,
                 vibe_state=vibe_state,
                 vibe_config=vibe_config,
-                big_steps=16,
-                small_steps=48,
+                big_steps=64,
+                small_steps=64,
                 big_post_steps=0,
-                small_post_steps=8,
+                small_post_steps=0,
             )
 
             (eval_states, _), infos, _, _ = jax.vmap(eval_actor_partial)(rngs)
