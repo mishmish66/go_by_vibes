@@ -8,7 +8,7 @@ from flax import linen as nn
 
 from einops import einsum, rearrange
 
-encoded_state_dim = 3
+encoded_state_dim = 6
 encoded_action_dim = 2
 
 
@@ -37,7 +37,7 @@ class FreqLayer(nn.Module):
 
 class StateEncoder(nn.Module):
     def setup(self):
-        self.freq_layer = FreqLayer(out_dim=64)
+        self.freq_layer = FreqLayer(out_dim=128)
 
         self.dense_layers = [
             nn.Dense(dim, name=f"FC{i}")

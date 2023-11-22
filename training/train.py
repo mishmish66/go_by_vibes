@@ -105,38 +105,38 @@ def train_step(
     forward_loss = loss_infos.loss_infos["forward_loss"]
     reconstruction_loss = loss_infos.loss_infos["reconstruction_loss"]
 
-    forward_blend_gate = make_gate_value(
-        forward_loss,
-        train_config.forward_blend_gate_sharpness,
-        train_config.forward_blend_gate_center,
-    )
+    #forward_blend_gate = make_gate_value(
+    #    forward_loss,
+    #    train_config.forward_blend_gate_sharpness,
+    #    train_config.forward_blend_gate_center,
+    #)
 
-    forward_gate = make_gate_value(
-        reconstruction_loss,
-        train_config.forward_gate_sharpness,
-        train_config.forward_gate_center,
-    )
+    #forward_gate = make_gate_value(
+    #    reconstruction_loss,
+    #    train_config.forward_gate_sharpness,
+    #    train_config.forward_gate_center,
+    #)
 
-    blend_gate = forward_blend_gate * forward_gate
+    #blend_gate = forward_blend_gate * forward_gate
 
     def scale_grad(grad, gate):
         return jax.tree_map(lambda x: x * gate, grad)
 
-    forward_loss_grads = vibe_grads.forward_loss
-    forward_loss_grads["action_encoder_params"] = scale_grad(
-        forward_loss_grads["action_encoder_params"], blend_gate
-    )
-    forward_loss_grads["action_decoder_params"] = scale_grad(
-        forward_loss_grads["action_decoder_params"], blend_gate
-    )
-    forward_loss_grads["state_encoder_params"] = scale_grad(
-        forward_loss_grads["state_encoder_params"], blend_gate
-    )
-    forward_loss_grads["state_decoder_params"] = scale_grad(
-        forward_loss_grads["state_decoder_params"], blend_gate
-    )
+    #forward_loss_grads = vibe_grads.forward_loss
+    #forward_loss_grads["action_encoder_params"] = scale_grad(
+    #    forward_loss_grads["action_encoder_params"], blend_gate
+    #)
+    #forward_loss_grads["action_decoder_params"] = scale_grad(
+    #    forward_loss_grads["action_decoder_params"], blend_gate
+    #)
+    #forward_loss_grads["state_encoder_params"] = scale_grad(
+    #    forward_loss_grads["state_encoder_params"], blend_gate
+    #)
+    #forward_loss_grads["state_decoder_params"] = scale_grad(
+    #    forward_loss_grads["state_decoder_params"], blend_gate
+    #)
 
-    vibe_grads = vibe_grads.replace(forward_loss=forward_loss_grads)
+    #vibe_grads = vibe_grads.replace(forward_loss=forward_loss_grads)
 
     def concat_leaves(tree):
         if isinstance(tree, dict):

@@ -54,18 +54,27 @@ def eval_log_gaussian(gaussian, point):
 
 
 def loss_forward(
+    key,
     inferred_latent_states_prime_gauss_params,
     gt_next_latent_states,
 ):
-    log_probs = jax.vmap(
-        eval_log_gaussian,
-        (0, 0),
-    )(inferred_latent_states_prime_gauss_params, gt_next_latent_states)
+    rng, key = jax.random.split(key)
+    sampled_inferred = sample_gaussian(rng, inferred_latent_states_prime_gauss_params)
 
-    return jnp.mean(-log_probs)
+    msle = jnp.mean(jnp.log(jnp.square(sampled_inferred - gt_next_latent_states) + 1))
+
+    return msle
+
+    # log_probs = jax.vmap(
+    #     eval_log_gaussian,
+    #     (0, 0),
+    # )(inferred_latent_states_prime_gauss_params, gt_next_latent_states)
+
+    # return jnp.mean(-log_probs)
 
 
 def loss_reconstruction(
+    key,
     gaussian_params,
     gt_value,
 ):
@@ -78,11 +87,17 @@ def loss_reconstruction(
     Returns:
         Scalar: The mean negative log value of the gaussian at the gt points.
     """
-    probs = jax.vmap(
-        eval_log_gaussian,
-        (0, 0),
-    )(gaussian_params, gt_value)
-    return -jnp.mean(probs)
+    rng, key = jax.random.split(key)
+    sampled_inferred = sample_gaussian(rng, gaussian_params)
+
+    msle = jnp.mean(jnp.log(jnp.square(sampled_inferred - gt_value) + 1))
+    return msle
+
+    # probs = jax.vmap(
+    #     eval_log_gaussian,
+    #     (0, 0),
+    # )(gaussian_params, gt_value)
+    # return -jnp.mean(probs)
 
 
 def loss_action_neighborhood_size(
@@ -245,14 +260,6 @@ def unordered_losses(
         (0, 0, None, None),
     )(rngs, states, vibe_state, train_config)
 
-    state_action_neighborhood_sizes = jax.vmap(
-        jax.tree_util.Partial(
-            size_state_action_neighborhood,
-            vibe_state=vibe_state,
-            vibe_config=train_config,
-        )
-    )(latent_states)
-
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, actions.shape[0])
     latent_actions = jax.vmap(
@@ -270,11 +277,15 @@ def unordered_losses(
     )(latent_actions, latent_states, vibe_state, train_config)
 
     # Evaluate reconstruction loss:
+    rng, key = jax.random.split(key)
     state_reconstruction_loss = loss_reconstruction(
+        rng,
         state_space_gaussians,
         states,
     )
+    rng, key = jax.random.split(key)
     action_reconstruction_loss = loss_reconstruction(
+        rng,
         action_space_gaussians,
         actions,
     )
@@ -301,14 +312,29 @@ def unordered_losses(
         target_radius=train_config.action_radius,
     )
 
+    rng, key = jax.random.split(key)
+    random_latent_states = jax.random.ball(
+        rng,
+        d=encoded_state_dim,
+        p=1,
+        shape=[latent_states.shape[0] // 4],
+    )
+    random_state_neighborhood_sizes = jax.vmap(
+        jax.tree_util.Partial(
+            size_state_action_neighborhood,
+            vibe_state=vibe_state,
+            vibe_config=train_config,
+        )
+    )(random_latent_states)
+
     dispersion_loss = loss_disperse(
         rngs[3],
-        latent_states,
-        state_action_neighborhood_sizes,
+        random_latent_states,
+        random_state_neighborhood_sizes,
         vibe_state,
         train_config,
         start_state_samples=latent_states.shape[0] // 4,
-        random_action_samples=4,
+        random_action_samples=8,
     )
     result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
 
@@ -317,7 +343,7 @@ def unordered_losses(
     result_infos = result_infos.add_loss_info("condensation_loss", condensation_loss)
 
     action_neighborhood_loss = loss_action_neighborhood_size(
-        state_action_neighborhood_sizes
+        random_state_neighborhood_sizes
     )
     result_infos = result_infos.add_loss_info(
         "action_neighborhood_loss", action_neighborhood_loss
@@ -396,8 +422,9 @@ def composed_random_index_losses(
     )
 
     # Evaluate the forward loss
+    rng, key = jax.random.split(key)
     forward_loss = loss_forward(
-        slice_latent_state_prime_gaussians, slice_next_latent_states
+        rng, slice_latent_state_prime_gaussians, slice_next_latent_states
     )
 
     # Now lets predict a bunch of single state next latent states
@@ -421,8 +448,9 @@ def composed_random_index_losses(
     )
 
     # Now we evaluate the single step forward loss
+    rng, key = jax.random.split(key)
     single_step_forward_loss = loss_forward(
-        random_state_prime_gaussians[..., 0, :], random_next_latent_states
+        rng, random_state_prime_gaussians[..., 0, :], random_next_latent_states
     )
 
     forward_loss = forward_loss + single_step_forward_loss
@@ -533,18 +561,6 @@ class Losses:
     def scale_gate_info(self, train_config: TrainConfig):
         infos = Infos.init()
 
-        inverse_reconstruction_gate = 1 - make_gate_value(
-            self.reconstruction_loss,
-            train_config.inverse_reconstruction_gate_sharpness,
-            train_config.inverse_reconstruction_gate_center,
-        )
-
-        inverse_forward_gate = 1 - make_gate_value(
-            self.forward_loss,
-            train_config.inverse_forward_gate_sharpness,
-            train_config.inverse_forward_gate_center,
-        )
-
         forward_gate = make_gate_value(
             self.reconstruction_loss,
             train_config.forward_gate_sharpness,
@@ -588,15 +604,6 @@ class Losses:
             self.action_neighborhood_loss * train_config.action_neighborhood_weight
         )
 
-        scaled_gated_reconstruction_loss = (
-            scaled_reconstruction_loss * inverse_reconstruction_gate
-        )
-        # Getting rid of the forward gate on the actual forward loss
-        scaled_gated_forward_loss = (
-            # scaled_forward_loss * forward_gate * inverse_forward_gate
-            scaled_forward_loss
-            * inverse_forward_gate
-        )
         scaled_gated_smoothness_loss = scaled_smoothness_loss * smoothness_gate
         scaled_gated_dispersion_loss = scaled_dispersion_loss * dispersion_gate
         scaled_gated_condensation_loss = scaled_condensation_loss * condensation_gate
@@ -624,18 +631,14 @@ class Losses:
             "action_neighborhood_loss", scaled_action_neighborhood_loss
         )
 
-        infos = infos.add_plain_info(
-            "inverse_reconstruction_gate", inverse_reconstruction_gate
-        )
-        infos = infos.add_plain_info("inverse_forward_gate", inverse_forward_gate)
         infos = infos.add_plain_info("forward_gate", forward_gate)
         infos = infos.add_plain_info("smoothness_gate", smoothness_gate)
         infos = infos.add_plain_info("dispersion_gate", dispersion_gate)
         infos = infos.add_plain_info("condensation_gate", condensation_gate)
 
         result_loss = Losses.init(
-            reconstruction_loss=scaled_gated_reconstruction_loss,
-            forward_loss=scaled_gated_forward_loss,
+            reconstruction_loss=scaled_reconstruction_loss,
+            forward_loss=scaled_forward_loss,
             smoothness_loss=scaled_gated_smoothness_loss,
             dispersion_loss=scaled_gated_dispersion_loss,
             condensation_loss=scaled_gated_condensation_loss,
@@ -684,4 +687,5 @@ class Losses:
 
 
 def make_gate_value(x, sharpness, center):
-    return jax.lax.stop_gradient(1 / (1 + jnp.exp(sharpness * (x - center))))
+    sgx = jax.lax.stop_gradient(x)
+    return (1 + jnp.exp(sharpness * (sgx - center))) ** (-1 / 16)

@@ -96,7 +96,7 @@ os.makedirs(checkpoint_dir)
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(2.5e-4)
+learning_rate = float(5.0e-4)
 every_k = 4
 
 env_cls = Finger
@@ -106,17 +106,17 @@ env_config = env_cls.get_config()
 schedule = optax.cosine_onecycle_schedule(
     8192,
     peak_value=learning_rate,
-    pct_start=0.125,
-    div_factor=1.0,
+    pct_start=0.3,
+    div_factor=25.0,
     final_div_factor=10.0,
-)
+ )
 
 vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
     optimizer=optax.MultiSteps(
         optax.chain(
             optax.zero_nans(),
-            optax.clip_by_global_norm(200.0),
+            optax.clip_by_global_norm(1e12),
             optax.lion(learning_rate=schedule),
         ),
         every_k_schedule=every_k,
@@ -142,18 +142,12 @@ vibe_config = TrainConfig.init(
     smoothness_weight=1.0,
     condensation_weight=1.0,
     dispersion_weight=1.0,
-    inverse_reconstruction_gate_sharpness=1,
-    inverse_forward_gate_sharpness=1,
-    inverse_reconstruction_gate_center=-100,
-    inverse_forward_gate_center=-100,
-    forward_blend_gate_sharpness=1,
-    forward_blend_gate_center=5,
-    forward_gate_sharpness=5,
-    smoothness_gate_sharpness=1,
+    forward_gate_sharpness=1024,
+    smoothness_gate_sharpness=1024,
     dispersion_gate_sharpness=1,
     condensation_gate_sharpness=1,
-    forward_gate_center=-5,
-    smoothness_gate_center=-50,
+    forward_gate_center=0,
+    smoothness_gate_center=0,
     dispersion_gate_center=-9,
     condensation_gate_center=-9,
 )
