@@ -146,7 +146,7 @@ def loss_disperse(
         jnp.triu_indices_from(pairwise_diff_mags, k=1)
     ]
 
-    return jnp.mean(pairwise_diff_mags)
+    return -jnp.mean(jnp.log(pairwise_diff_mags + 1))
 
 
 def loss_condense(
