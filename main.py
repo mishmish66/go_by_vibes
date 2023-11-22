@@ -104,11 +104,11 @@ env_cls = Finger
 env_config = env_cls.get_config()
 
 schedule = optax.cosine_onecycle_schedule(
-    8192,
+    16384,
     peak_value=learning_rate,
-    pct_start=0.3,
+    pct_start=0.125,
     div_factor=25.0,
-    final_div_factor=10.0,
+    final_div_factor=1.0,
 )
 
 vibe_config = TrainConfig.init(
