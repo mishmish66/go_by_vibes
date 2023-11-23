@@ -29,7 +29,7 @@ def collect_rollout(
     key,
 ):
     policy = jax.tree_util.Partial(policy)
-    
+
     # Collect a rollout of physics data
     def scanf(carry, _):
         state, key, i, policy_carry = carry
@@ -37,6 +37,11 @@ def collect_rollout(
         rng, key = jax.random.split(key)
         action, policy_carry = policy(
             rng, state, i, policy_carry, vibe_state, vibe_config
+        )
+        action = jnp.clip(
+            action,
+            a_min=vibe_config.env_config[..., 0],
+            a_max=vibe_config.env_config[..., -1],
         )
         next_state = env_cls.step(state, action, vibe_config.env_config)
 
