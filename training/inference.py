@@ -74,7 +74,7 @@ def size_state_action_neighborhood(
 
     state_size = jnp.clip(state_size_unlimited, 0, vibe_config.action_radius)
 
-    return state_size
+    return 1.0  # state_size
 
 
 def get_neighborhood_state(key, latent_state):
