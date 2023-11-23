@@ -40,8 +40,8 @@ def collect_rollout(
         )
         action = jnp.clip(
             action,
-            a_min=vibe_config.env_config[..., 0],
-            a_max=vibe_config.env_config[..., -1],
+            a_min=vibe_config.env_config.action_bounds[..., 0],
+            a_max=vibe_config.env_config.action_bounds[..., -1],
         )
         next_state = env_cls.step(state, action, vibe_config.env_config)
 
