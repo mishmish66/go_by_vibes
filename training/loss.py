@@ -270,11 +270,17 @@ def unordered_losses(
         )
     )(random_latent_states)
 
-    dispersion_loss = loss_disperse(
+    state_dispersion_loss = loss_disperse(
         rngs[3],
         latent_states=latent_states,
         state_samples=8,
     )
+    action_dispersion_loss = loss_disperse(
+        rngs[4],
+        latent_states=latent_actions,
+        state_samples=8,
+    )
+    dispersion_loss = state_dispersion_loss + action_dispersion_loss
     result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
 
     condensation_loss = state_condensation_loss + action_condensation_loss
