@@ -90,7 +90,7 @@ schedule = optax.cosine_onecycle_schedule(
     16384,
     peak_value=learning_rate,
     pct_start=0.125,
-    div_factor=25.0,
+    div_factor=10.0,
     final_div_factor=1.0,
 )
 
