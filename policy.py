@@ -204,7 +204,7 @@ def optimize_actions(
         clip_scale = jnp.where(
             next_plan_is_in_space,
             jnp.ones_like(next_plan_norms),
-            next_plan_norms,
+            next_plan_norms / vibe_config.action_radius,
         )
         next_plan_clipped = next_plan / clip_scale[..., None]
         return next_plan_clipped, cost
@@ -241,11 +241,14 @@ def make_optimize_actor(
     small_post_steps=48,
 ):
     rng, key = jax.random.split(key)
-    random_latent_actions = jax.random.ball(
-        rng,
-        d=encoded_action_dim,
-        p=1,
-        shape=[vibe_config.rollout_length],
+    random_latent_actions = (
+        jax.random.ball(
+            rng,
+            d=encoded_action_dim,
+            p=1,
+            shape=[vibe_config.rollout_length],
+        )
+        * vibe_config.action_radius
     )
 
     rng, key = jax.random.split(key)
