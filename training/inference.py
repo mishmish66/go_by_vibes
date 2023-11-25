@@ -237,14 +237,14 @@ def infer_states(
     latent_actions,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
-    first_unknown_action_i=0,
+    current_action_i=0,
 ):
     latent_state_prime_gaussians = get_latent_state_prime_gaussians(
         latent_start_state,
         latent_actions,
         vibe_state,
         vibe_config,
-        first_unknown_action_i,
+        current_action_i,
     )
 
     rng, key = jax.random.split(key)
