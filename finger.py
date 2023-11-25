@@ -29,35 +29,45 @@ class Finger:
         cls.model = mjx.device_put(cls.host_model)
         cls.renderer = mujoco.Renderer(cls.host_model, 512, 512)
 
-    @classmethod
-    def host_step(cls, state, action, env_config: EnvConfig):
-        cls.model.opt.timestep = env_config.dt / env_config.substep
-        data.qpos[:] = state[: cls.model.nq]
-        data.qvel[:] = state[cls.model.nq :]
+    # @classmethod
+    # def host_step(cls, state, action, env_config: EnvConfig):
+    #     cls.model.opt.timestep = env_config.dt / env_config.substep
+    #     data.qpos[:] = state[: cls.model.nq]
+    #     data.qvel[:] = state[cls.model.nq :]
 
-        for _ in range(env_config.substep):
-            cls.data.ctrl[:] = action
-            mujoco.mj_step(cls.model, cls.data)
+    #     for _ in range(env_config.substep):
+    #         cls.data.ctrl[:] = action
+    #         mujoco.mj_step(cls.model, cls.data)
 
-        return cls.host_make_state()
+    #     return cls.host_make_state()
 
     @classmethod
     def step(cls, state, action, env_config: EnvConfig = None):
         if env_config is None:
             env_config = cls.get_config()
 
-        # action = jnp.nan_to_num(action)
-        ctrl = action
+        # Configure the model to the env_config
+        substep_dt = env_config.dt / env_config.substep
+        model = cls.model
+        temp_opt = model.opt.replace(timestep=substep_dt)
+        model = model.replace(opt=temp_opt)
 
-        data = mjx.make_data(cls.model)
-        qpos = state[: cls.model.nq]
-        qvel = state[cls.model.nq :]
+        # Make the data
+        data = mjx.make_data(model)
+
+        # Filter out nans in the action
+        nan_action_elems = jnp.isnan(action)
+        ctrl = jnp.where(nan_action_elems, data.ctrl, action)
+
+        # Set the model state
+        qpos = state[: model.nq]
+        qvel = state[model.nq :]
 
         data = data.replace(qpos=qpos, qvel=qvel, ctrl=ctrl)
 
         def scanf(data, _):
             data = data.replace(ctrl=ctrl)
-            data = mjx.step(cls.model, data)
+            data = mjx.step(model, data)
             return data, _
 
         next_data, _ = jax.lax.scan(
@@ -92,8 +102,8 @@ class Finger:
             action_bounds=jnp.array(cls.model.actuator_ctrlrange),
             state_dim=cls.model.nq + cls.model.nv,
             act_dim=cls.model.nu,
-            dt=cls.model.opt.timestep * 4,
-            substep=4,
+            dt=cls.model.opt.timestep * 32,
+            substep=64,
         )
 
     @classmethod
@@ -114,7 +124,17 @@ class Finger:
 
     @classmethod
     def host_make_video(cls, states, env_config: EnvConfig, fps=24):
-        stride = int(1 / fps / env_config.dt)
+        stride = 1 / fps / env_config.dt
+
+        # Approximate the fps
+        if stride < 1:
+            # If the stride is less than 1, then we will raise it to 1 and set the fps as high as possible
+            stride = 1
+            fps = 1 / env_config.dt
+        else:
+            # Otherwise, we will round the stride to the nearest integer and set the fps to that
+            stride = int(stride)
+            fps = 1 / env_config.dt / stride
 
         frames = []
         next_state_i = 0

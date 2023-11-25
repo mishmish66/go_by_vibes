@@ -109,12 +109,24 @@ def loss_action_neighborhood_size(
 def loss_smoothness(
     original_latent_states,
     neighborhood_result_latent_states,
+    first_unknown_next_state_i,
 ):
     diffs = original_latent_states - neighborhood_result_latent_states
     diff_mags = jnp.linalg.norm(diffs, ord=1, axis=-1)
     neighborhood_violation = jnp.maximum(diff_mags - 1.0, 0)
+    log_neighborhood_violation = jnp.log(neighborhood_violation + 1e-6)
 
-    return jnp.mean(jnp.log(neighborhood_violation + 1e-6))
+    # Mask out the losses from known past states
+    future_state_mask = make_mask(
+        original_latent_states.shape[0], first_unknown_next_state_i
+    )
+    future_inferred_log_neighborhood_violation = einsum(
+        log_neighborhood_violation,
+        future_state_mask,
+        "..., i -> ...",
+    )
+
+    return jnp.mean(future_inferred_log_neighborhood_violation)
 
 
 def loss_disperse(
@@ -270,11 +282,17 @@ def unordered_losses(
         )
     )(random_latent_states)
 
-    dispersion_loss = loss_disperse(
+    state_dispersion_loss = loss_disperse(
         rngs[3],
         latent_states=latent_states,
         state_samples=8,
     )
+    action_dispersion_loss = loss_disperse(
+        rngs[4],
+        latent_states=latent_actions,
+        state_samples=8,
+    )
+    dispersion_loss = state_dispersion_loss + action_dispersion_loss
     result_infos = result_infos.add_loss_info("dispersion_loss", dispersion_loss)
 
     condensation_loss = state_condensation_loss + action_condensation_loss
@@ -332,95 +350,73 @@ def composed_random_index_losses(
         )
     )(prev_latent_states)
 
-    # Generate a random index that is not in the last context_length
-    slice_begin = jax.random.randint(key, [], 0, states.shape[0] - 1 - context_length)
-
-    # Now we slice out the context
-    slice_prev_latent_states = jax.lax.dynamic_slice_in_dim(
-        prev_latent_states, slice_begin, context_length
+    # Generate a random index and give it a bunch of names
+    random_index = jax.random.randint(key, [], 0, prev_latent_states.shape[0])
+    last_known_prev_state_i = random_index
+    current_action_i = random_index
+    first_unknown_next_state_i = random_index
+    # Make masks
+    known_prev_state_mask = ~make_mask(
+        prev_latent_states.shape[0], last_known_prev_state_i + 1
     )
-    slice_next_latent_states = jax.lax.dynamic_slice_in_dim(
-        next_latent_states, slice_begin, context_length
-    )
-
-    slice_latent_actions = jax.lax.dynamic_slice_in_dim(
-        latent_actions, slice_begin, context_length
-    )
-    slice_action_neighborhoods_sizes = jax.lax.dynamic_slice_in_dim(
-        action_neighborhoods_sizes, slice_begin, context_length
+    unknown_next_state_mask = make_mask(
+        next_latent_states.shape[0], first_unknown_next_state_i
     )
 
-    slice_latent_start_state = slice_prev_latent_states[0]
+    last_known_state = prev_latent_states[last_known_prev_state_i]
 
     # Now we get predict the next latent states
-    slice_latent_state_prime_gaussians = get_latent_state_prime_gaussians(
-        slice_latent_start_state,
-        slice_latent_actions,
-        vibe_state,
-        train_config,
+    latent_prime_gaussians = get_latent_state_prime_gaussians(
+        last_known_state,
+        latent_actions=latent_actions,
+        vibe_state=vibe_state,
+        vibe_config=train_config,
+        current_action_i=current_action_i,
+    )
+
+    latent_prime_gaussians_inferred = einsum(
+        latent_prime_gaussians,
+        unknown_next_state_mask,
+        "i ..., i -> i ...",
+    )
+    gt_next_latent_states = einsum(
+        next_latent_states,
+        unknown_next_state_mask,
+        "i ..., i -> i ...",
     )
 
     # Evaluate the forward loss
     rng, key = jax.random.split(key)
     forward_loss = loss_forward(
-        rng, slice_latent_state_prime_gaussians, slice_next_latent_states
+        rng, latent_prime_gaussians_inferred, gt_next_latent_states
     )
-
-    # Now lets predict a bunch of single state next latent states
-    num_random_samples = 32
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, num_random_samples)
-    random_indices = jax.random.randint(
-        rng, [num_random_samples], 0, slice_prev_latent_states.shape[0] - 1
-    )
-    random_prev_latent_states = slice_prev_latent_states[random_indices]
-    random_latent_actions = slice_latent_actions[random_indices]
-    random_next_latent_states = slice_next_latent_states[random_indices]
-
-    random_state_prime_gaussians = jax.vmap(
-        get_latent_state_prime_gaussians, in_axes=(0, 0, None, None)
-    )(
-        random_prev_latent_states,
-        random_latent_actions[:, None, :],
-        vibe_state,
-        train_config,
-    )
-
-    # Now we evaluate the single step forward loss
-    rng, key = jax.random.split(key)
-    single_step_forward_loss = loss_forward(
-        rng, random_state_prime_gaussians[..., 0, :], random_next_latent_states
-    )
-
-    forward_loss = forward_loss + single_step_forward_loss
 
     # Evaluate the smoothness loss
     # First we resample the indexed state
     rng, key = jax.random.split(key)
-    neighborhood_latent_start_state = get_neighborhood_state(
-        rng,
-        slice_latent_start_state,
-    )
+    neighborhood_latent_start_state = get_neighborhood_state(rng, last_known_state)
+    # Now we resample the latent actions
     rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, slice_latent_actions.shape[0])
+    rngs = jax.random.split(rng, latent_actions.shape[0])
     neighborhood_latent_actions = jax.vmap(get_neighborhood_action)(
-        rngs, slice_latent_actions, slice_action_neighborhoods_sizes
+        rngs, latent_actions, action_neighborhoods_sizes
     )
 
-    # Now we resample the latent actions
-    # Now we model forward from that state
+    # Now we infer forward from the neighborhood state and actions
     rng, key = jax.random.split(key)
     neighborhood_next_states_prime = infer_states(
         rng,
-        neighborhood_latent_start_state,
-        neighborhood_latent_actions,
-        vibe_state,
-        train_config,
+        latent_start_state=neighborhood_latent_start_state,
+        latent_actions=neighborhood_latent_actions,
+        vibe_state=vibe_state,
+        vibe_config=train_config,
+        current_action_i=current_action_i,
     )
     # Now we evaluate the smoothness loss
     smoothness_loss = loss_smoothness(
-        slice_next_latent_states,
-        neighborhood_next_states_prime,
+        original_latent_states=next_latent_states,
+        neighborhood_result_latent_states=neighborhood_next_states_prime,
+        first_unknown_next_state_i=first_unknown_next_state_i,
     )
 
     result_infos = result_infos.add_loss_info("smoothness_loss", smoothness_loss)
