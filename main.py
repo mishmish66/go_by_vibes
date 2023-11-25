@@ -135,9 +135,9 @@ vibe_state = VibeState.init(rng, vibe_config)
 
 checkpoint_dir = "checkpoints"
 
-vibe_state = checkpointer.restore(
-    os.path.join(checkpoint_dir, "checkpoint_r38_s512.0"), item=vibe_state
-)
+# vibe_state = checkpointer.restore(
+#     os.path.join(checkpoint_dir, "checkpoint_r38_s512.0"), item=vibe_state
+# )
 
 # clear checkpoints
 if os.path.exists(checkpoint_dir):
