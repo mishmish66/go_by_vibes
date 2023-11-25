@@ -120,13 +120,16 @@ def loss_smoothness(
     future_state_mask = make_mask(
         original_latent_states.shape[0], first_unknown_next_state_i
     )
-    future_inferred_log_neighborhood_violation = einsum(
-        log_neighborhood_violation,
-        future_state_mask,
-        "..., i -> ...",
+    sum_future_inferred_log_neighborhood_violation = jnp.sum(
+        log_neighborhood_violation * future_state_mask
     )
 
-    return jnp.mean(future_inferred_log_neighborhood_violation)
+    future_inferred_state_count = jnp.sum(future_state_mask)
+    mean_future_inferred_log_neighborhood_violation = (
+        sum_future_inferred_log_neighborhood_violation / future_inferred_state_count
+    )
+
+    return mean_future_inferred_log_neighborhood_violation
 
 
 def loss_disperse(
