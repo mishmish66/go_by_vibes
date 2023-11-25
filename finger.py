@@ -47,7 +47,7 @@ class Finger:
             env_config = cls.get_config()
 
         nan_action_elems = jnp.isnan(action)
-        ctrl = jnp.where(nan_action_elems, ctrl, action)
+        ctrl = jnp.where(nan_action_elems, data.ctrl, action)
 
         data = mjx.make_data(cls.model)
         qpos = state[: cls.model.nq]
