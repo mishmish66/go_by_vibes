@@ -103,7 +103,7 @@ class Finger:
             state_dim=cls.model.nq + cls.model.nv,
             act_dim=cls.model.nu,
             dt=cls.model.opt.timestep * 32,
-            substep=64,
+            substep=32,
         )
 
     @classmethod
