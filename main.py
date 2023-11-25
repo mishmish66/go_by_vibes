@@ -161,17 +161,6 @@ wandb.init(
     # mode="disabled",
 )
 
-send_finder_video = env_cls.make_wandb_sender("finder video")
-send_random_video = env_cls.make_wandb_sender("random video")
-send_rng_conf_video = env_cls.make_wandb_sender("rng conf video")
-
-send_actor_video = env_cls.make_wandb_sender("actor video")
-
-
-def dump_to_wandb_for_tap(tap_pack, _):
-    infos, rollout_i, epoch_i, chunk_i = tap_pack
-    dump_to_wandb(infos, rollout_i, epoch_i, chunk_i, vibe_config)
-
 
 def do_rollout(carry_pack, _):
     (key, rollout_i, vibe_state) = carry_pack
@@ -220,82 +209,15 @@ def do_rollout(carry_pack, _):
 
         return rollout_result
 
-    def collect_rng_conf_rollout(key):
-        rng, key = jax.random.split(key)
-        conf_actor, init_carry = make_target_conf_policy(
-            rng,
-            start_state,
-            vibe_state,
-            vibe_config,
-            env_cls,
-        )
-
-        rng_actor = random_repeat_policy
-
-        actor = make_piecewise_actor(
-            conf_actor, rng_actor, vibe_config.rollout_length // 2
-        )
-
-        rng1, rng2, key = jax.random.split(key, 3)
-        rollout_result = collect_rollout(
-            start_state,
-            actor,
-            (init_carry, random_action(rng1, vibe_config.env_config.action_bounds)),
-            env_cls,
-            vibe_state,
-            vibe_config,
-            rng2,
-        )
-
-        return rollout_result
-
-    def collect_rng_rollout(key):
-        rng1, rng2, key = jax.random.split(key, 3)
-        starting_random_action = random_action(
-            rng1, vibe_config.env_config.action_bounds
-        )
-        rollout_result = collect_rollout(
-            start_state,
-            random_repeat_policy,
-            starting_random_action,
-            env_cls,
-            vibe_state,
-            vibe_config,
-            rng2,
-        )
-
-        return rollout_result
-
     print("Collecting finder rollouts")
     rng, key = jax.random.split(key)
     rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
-    finder_states, finder_actions = jax.vmap(collect_finder_rollout)(
+    rollout_result = jax.vmap(collect_finder_rollout)(
         rngs,
     )
 
-    print("Collecting backup rollouts")
-    rng, key = jax.random.split(key)
-    rngs = jax.random.split(rng, vibe_config.traj_per_rollout)
-    backup_states, backup_actions = jax.vmap(collect_rng_rollout)(
-        rngs,
-    )
-
-    bad_samples = reduce(jnp.isnan(finder_states), "d ... -> d", "max") + reduce(
-        jnp.isnan(finder_actions), "d ... -> d", "max"
-    )
-
-    states, actions = (
-        jnp.where(bad_samples[..., None, None], finder_states, backup_states),
-        jnp.where(bad_samples[..., None, None], finder_actions, backup_actions),
-    )
-
-    rollout_result = (states, actions)
-
-    send_finder_video(jnp.nan_to_num(finder_states[0]), env_config)
-    send_random_video(jnp.nan_to_num(backup_states[-1]), env_config)
-
-    # from jax import config
-    # config.update("jax_disable_jit", True)
+    video_states = jnp.nan_to_num(rollout_result[0][0])
+    env_cls.host_send_wandb_video("Finder Video", video_states, env_config)
 
     def do_epoch(carry_pack, _):
         (
@@ -408,10 +330,7 @@ def do_rollout(carry_pack, _):
 
             (eval_states, _), infos, _, _ = jax.vmap(eval_actor_partial)(rngs)
 
-            rng, key = jax.random.split(key)
-            random_traj = jax.random.choice(rng, eval_states, axis=0)
-
-            send_actor_video(random_traj, env_config)
+            env_cls.host_send_wandb_video("Actor Video", eval_states[0], env_config)
 
             infos.dump_to_wandb()
             infos.dump_to_console()
