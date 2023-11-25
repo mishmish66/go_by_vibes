@@ -356,8 +356,12 @@ def composed_random_index_losses(
     current_action_i = random_index
     first_unknown_next_state_i = random_index
     # Make masks
-    known_prev_state_mask = ~make_mask(states.shape[0], last_known_prev_state_i + 1)
-    unknown_next_state_mask = make_mask(states.shape[0], first_unknown_next_state_i)
+    known_prev_state_mask = ~make_mask(
+        prev_latent_states.shape[0], last_known_prev_state_i + 1
+    )
+    unknown_next_state_mask = make_mask(
+        next_latent_states.shape[0], first_unknown_next_state_i
+    )
 
     last_known_state = prev_latent_states[last_known_prev_state_i]
 
