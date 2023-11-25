@@ -71,11 +71,6 @@ seed = 1
 key = jax.random.PRNGKey(seed)
 checkpoint_dir = "checkpoints"
 
-# clear checkpoints
-if os.path.exists(checkpoint_dir):
-    shutil.rmtree(checkpoint_dir)
-
-os.makedirs(checkpoint_dir)
 
 checkpointer = ocp.PyTreeCheckpointer()
 
@@ -90,7 +85,7 @@ schedule = optax.cosine_onecycle_schedule(
     16384,
     peak_value=learning_rate,
     pct_start=0.125,
-    div_factor=10.0,
+    div_factor=25.0,
     final_div_factor=1.0,
 )
 
@@ -137,6 +132,18 @@ vibe_config = TrainConfig.init(
 
 rng, key = jax.random.split(key)
 vibe_state = VibeState.init(rng, vibe_config)
+
+checkpoint_dir = "checkpoints"
+
+vibe_state = checkpointer.restore(
+    os.path.join(checkpoint_dir, "checkpoint_r38_s512.0"), item=vibe_state
+)
+
+# clear checkpoints
+if os.path.exists(checkpoint_dir):
+    shutil.rmtree(checkpoint_dir)
+
+os.makedirs(checkpoint_dir)
 
 policy = jax.tree_util.Partial(random_policy)
 
