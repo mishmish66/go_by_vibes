@@ -46,8 +46,8 @@ class Finger:
         if env_config is None:
             env_config = cls.get_config()
 
-        # action = jnp.nan_to_num(action)
-        ctrl = action
+        nan_action_elems = jnp.isnan(action)
+        ctrl = jnp.where(nan_action_elems, ctrl, action)
 
         data = mjx.make_data(cls.model)
         qpos = state[: cls.model.nq]
@@ -69,7 +69,7 @@ class Finger:
         next_qpos = next_data.qpos
         next_qvel = next_data.qvel
 
-        return jnp.concatenate([next_qpos, next_qvel], dtype=jnp.float32)
+        return (jnp.concatenate([next_qpos, next_qvel], dtype=jnp.float32),)
 
     # @classmethod
     # def host_make_state(cls):
