@@ -259,10 +259,10 @@ class TransitionModel(nn.Module):
         initial_latent_state,
         latent_actions,
         times,
-        first_known_action_i,
+        current_action_i,
     ) -> Any:
-        inds = make_inds(latent_actions.shape[0], first_known_action_i)
-        mask_time_inds = einsum(inds, inds < 0, "i, i->i")
+        inds = make_inds(latent_actions.shape[0], current_action_i)
+        mask_time_inds = jnp.maximum(inds, 0)
 
         # Apply temporal encodings
         latent_actions_temp = jax.vmap(self.temporal_encoder, (0, 0))(
