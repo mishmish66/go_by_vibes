@@ -208,18 +208,18 @@ def decode_action(
 
 
 def get_latent_state_prime_gaussians(
-    latent_states,
+    latent_start_state,
     latent_actions,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
-    first_known_action_i=0,
+    current_action_i=0,
 ):
     next_state_gaussian = vibe_config.transition_model.apply(
         vibe_state.transition_model_params,
-        latent_states,
+        latent_start_state,
         latent_actions,
         jnp.arange(latent_actions.shape[0]) * vibe_config.env_config.dt,
-        first_known_action_i,
+        current_action_i,
     )
 
     # Clamp the variance to at least 1e-6
