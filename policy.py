@@ -207,7 +207,13 @@ def optimize_actions(
             next_plan_norms / vibe_config.action_radius,
         )
         next_plan_clipped = next_plan / clip_scale[..., None]
-        return next_plan_clipped, cost
+
+        next_plan_if_good = jax.lax.cond(
+            jnp.any(jnp.isnan(next_plan_clipped)),
+            lambda: current_plan,
+            lambda: next_plan_clipped,
+        )
+        return next_plan_if_good, cost
 
     rng, key = jax.random.split(key)
     scan_rng = jax.random.split(rng, big_steps)
