@@ -74,12 +74,20 @@ checkpoint_dir = "checkpoints"
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(1.0e-4)
-every_k = 4
+learning_rate = float(2.5e-4)
+every_k = 1
 
 env_cls = Finger
 
 env_config = env_cls.get_config()
+
+schedule = optax.cosine_onecycle_schedule(
+    transition_steps=2048,
+    peak_value=learning_rate,
+    pct_start=0.125,
+    div_factor=5.0,
+    final_div_factor=1.0,
+)
 
 vibe_config = TrainConfig.init(
     learning_rate=learning_rate,
