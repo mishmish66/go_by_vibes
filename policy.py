@@ -407,7 +407,7 @@ def make_finder_policy(
 
         rng, key = jax.random.split(key)
         noisy_action = sample_gaussian(
-            rng, jnp.concatenate([action, jnp.ones_like(action) * 2.5e-1])
+            rng, jnp.concatenate([action, jnp.ones_like(action) * 1.0e-1])
         )
 
         return noisy_action, next_guess
