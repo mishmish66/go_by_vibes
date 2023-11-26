@@ -99,6 +99,7 @@ class Infos:
     def host_get_dict(self):
         def remove_nan(tree):
             return jax.tree_map(lambda x: x[jnp.isnan(x) == False], tree)
+
         result_dict = {
             **{name: value[mask] for name, (value, mask) in self.masked_infos.items()},
             **remove_nan(self.plain_infos),
@@ -107,11 +108,11 @@ class Infos:
 
         return result_dict
 
-    def condense(self, axis=0, method='mean'):
+    def condense(self, axis=0, method="mean"):
         condenser = None
-        if method=='mean':
+        if method == "mean":
             condenser = lambda x: jnp.mean(x, axis=axis)
-        if method=='unstack':
+        if method == "unstack":
             condenser = lambda x: rearrange(x, "a b ... -> (a b) ...")
         return Infos.init(
             loss_infos=jax.tree_map(
@@ -145,7 +146,7 @@ class Infos:
         return loss_msg + "\n" + info_msg
 
     def host_dump_to_console(self):
-        return # print(self.host_get_str())
+        return  # print(self.host_get_str())
 
     def dump_to_console(self):
         id_tap(lambda arg, _: Infos.host_dump_to_console(arg), self)
