@@ -387,11 +387,11 @@ def make_finder_policy(
         vibe_state,
         vibe_config,
         env_cls,
-        big_steps=512,
+        big_steps=2048,
         small_steps=2048,
         small_step_size=0.05,
-        big_post_steps=0,
-        small_post_steps=0,
+        big_post_steps=32,
+        small_post_steps=32,
     )
 
     def noised_actor(
@@ -407,7 +407,7 @@ def make_finder_policy(
 
         rng, key = jax.random.split(key)
         noisy_action = sample_gaussian(
-            rng, jnp.concatenate([action, jnp.ones_like(action) * 1e-1])
+            rng, jnp.concatenate([action, jnp.ones_like(action) * 2.5e-1])
         )
 
         return noisy_action, next_guess
