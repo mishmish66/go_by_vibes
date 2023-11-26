@@ -86,7 +86,7 @@ schedule = optax.cosine_onecycle_schedule(
     peak_value=learning_rate,
     pct_start=0.125,
     div_factor=5.0,
-    final_div_factor=1.0,
+    final_div_factor=5.0,
 )
 
 vibe_config = TrainConfig.init(
