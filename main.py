@@ -94,7 +94,7 @@ vibe_config = TrainConfig.init(
     optimizer=optax.MultiSteps(
         optax.chain(
             optax.zero_nans(),
-            optax.clip_by_global_norm(1e12),
+            optax.clip_by_global_norm(500),
             optax.lion(learning_rate=learning_rate),
         ),
         every_k_schedule=every_k,
@@ -108,8 +108,8 @@ vibe_config = TrainConfig.init(
     env_config=env_config,
     seed=seed,
     rollouts=1024,
-    epochs=64,
-    batch_size=128,
+    epochs=128,
+    batch_size=64,
     every_k=every_k,
     traj_per_rollout=256,
     rollout_length=64,
@@ -120,8 +120,8 @@ vibe_config = TrainConfig.init(
     smoothness_weight=1.0,
     condensation_weight=1.0,
     dispersion_weight=1.0,
-    forward_gate_sharpness=1024,
-    smoothness_gate_sharpness=1024,
+    forward_gate_sharpness=256,
+    smoothness_gate_sharpness=256,
     dispersion_gate_sharpness=1,
     condensation_gate_sharpness=1,
     forward_gate_center=0,
@@ -135,9 +135,10 @@ vibe_state = VibeState.init(rng, vibe_config)
 
 checkpoint_dir = "checkpoints"
 
-# vibe_state = checkpointer.restore(
-#     os.path.join(checkpoint_dir, "checkpoint_r38_s512.0"), item=vibe_state
-# )
+rel_path = os.path.join(checkpoint_dir, "checkpoint_r60_s512.0")
+abs_path = os.path.abspath(rel_path)
+
+vibe_state = checkpointer.restore(abs_path, item=vibe_state)
 
 # clear checkpoints
 if os.path.exists(checkpoint_dir):
@@ -184,7 +185,7 @@ def do_rollout(carry_pack, _):
         rng, key = jax.random.split(key)
         ball_sample = jax.random.ball(rng, d=encoded_state_dim, p=1)
         ball_sample_norm = jnp.linalg.norm(ball_sample, ord=1)
-        target_state = ball_sample / ball_sample_norm * vibe_config.state_radius * 2.0
+        target_state = ball_sample / ball_sample_norm * vibe_config.state_radius * 1.125
 
         rng, key = jax.random.split(key)
         actor, init_carry = make_finder_policy(
@@ -322,10 +323,11 @@ def do_rollout(carry_pack, _):
                 env_cls=env_cls,
                 vibe_state=vibe_state,
                 vibe_config=vibe_config,
-                big_steps=64,
-                small_steps=64,
-                big_post_steps=0,
-                small_post_steps=0,
+                target_q=1.0,
+                big_steps=2048,
+                small_steps=2048,
+                big_post_steps=32,
+                small_post_steps=32,
             )
 
             (eval_states, _), infos, _, _ = jax.vmap(eval_actor_partial)(rngs)
