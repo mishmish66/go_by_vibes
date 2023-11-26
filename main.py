@@ -115,8 +115,8 @@ vibe_config = TrainConfig.init(
     rollout_length=64,
     state_radius=1.375,
     action_radius=2.0,
-    reconstruction_weight=1.0,
-    forward_weight=1.0,
+    reconstruction_weight=10.0,
+    forward_weight=10.0,
     smoothness_weight=1.0,
     condensation_weight=1.0,
     dispersion_weight=1.0,
@@ -184,7 +184,7 @@ def do_rollout(carry_pack, _):
         target_state = (
             jax.random.ball(rng, d=encoded_state_dim, p=1)
             * vibe_config.state_radius
-            * 1.25
+            * 2.0
         )
         rng, key = jax.random.split(key)
         actor, init_carry = make_finder_policy(
