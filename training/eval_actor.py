@@ -29,13 +29,13 @@ def evaluate_actor(
     env_cls,
     vibe_state: VibeState,
     vibe_config: TrainConfig,
-    target_q=-2.0,
+    target_q=1.0,
     big_step_size=0.5,
-    big_steps=512,
+    big_steps=2048,
     small_step_size=0.005,
-    small_steps=512,
-    big_post_steps=16,
-    small_post_steps=48,
+    small_steps=2048,
+    big_post_steps=32,
+    small_post_steps=32,
 ):
     horizon = vibe_config.rollout_length
 
