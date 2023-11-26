@@ -542,6 +542,7 @@ class Losses:
             self.action_neighborhood_loss * train_config.action_neighborhood_weight
         )
 
+        scaled_gated_forward_loss = scaled_forward_loss * forward_gate
         scaled_gated_smoothness_loss = scaled_smoothness_loss * smoothness_gate
         scaled_gated_dispersion_loss = scaled_dispersion_loss * dispersion_gate
         scaled_gated_condensation_loss = scaled_condensation_loss * condensation_gate
@@ -576,7 +577,7 @@ class Losses:
 
         result_loss = Losses.init(
             reconstruction_loss=scaled_reconstruction_loss,
-            forward_loss=scaled_forward_loss,
+            forward_loss=scaled_gated_forward_loss,
             smoothness_loss=scaled_gated_smoothness_loss,
             dispersion_loss=scaled_gated_dispersion_loss,
             condensation_loss=scaled_gated_condensation_loss,
