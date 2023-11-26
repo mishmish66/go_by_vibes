@@ -102,7 +102,7 @@ vibe_config = TrainConfig.init(
     state_encoder=StateEncoder(),
     action_encoder=ActionEncoder(),
     state_sizer=StateSizer(),
-    transition_model=TransitionModel(1e4, 6, 64, 4),
+    transition_model=TransitionModel(1e4, 3, 64, 4),
     state_decoder=StateDecoder(env_config.state_dim),
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
@@ -180,12 +180,12 @@ def do_rollout(carry_pack, _):
     )
 
     def collect_finder_rollout(key):
+        # Find a random vector a bit outside the space to go for
         rng, key = jax.random.split(key)
-        target_state = (
-            jax.random.ball(rng, d=encoded_state_dim, p=1)
-            * vibe_config.state_radius
-            * 2.0
-        )
+        ball_sample = jax.random.ball(rng, d=encoded_state_dim, p=1)
+        ball_sample_norm = jnp.linalg.norm(ball_sample, ord=1)
+        target_state = ball_sample / ball_sample_norm * vibe_config.state_radius * 2.0
+
         rng, key = jax.random.split(key)
         actor, init_carry = make_finder_policy(
             rng,
