@@ -174,7 +174,8 @@ class ActionDecoder(nn.Module):
 
 
 class TemporalEncoder(nn.Module):
-    n: float
+    min_freq: float = 0.2  # 5.0 second period
+    max_freq: float = 20  # 0.05 second period
 
     def setup(self):
         pass
@@ -184,16 +185,16 @@ class TemporalEncoder(nn.Module):
         indices = jnp.arange(d)
 
         # Compute frequencies
-        max_freq = 1 / 10.0  # 10 second period
-        min_freq = 1 / 0.05  # 0.05 second period
-        freqs = jnp.logspace(jnp.log10(min_freq), jnp.log10(max_freq), num=d // 2)
+        freqs = jnp.logspace(
+            jnp.log10(self.min_freq), jnp.log10(self.max_freq), num=d // 2
+        )
 
         # Get phases
         phases = time * freqs
 
         # Compute sines and cosines of phases
-        sines = jnp.sin(phases[0::2])
-        cosines = jnp.cos(phases[1::2])
+        sines = jnp.sin(phases)
+        cosines = jnp.cos(phases)
 
         # Give it the dims it needs
         freq_result = jnp.concatenate([sines, cosines])
