@@ -271,7 +271,7 @@ class TransitionModel(nn.Module):
     ) -> Any:
         inds = make_inds(latent_actions.shape[0], current_action_i)
         mask = inds >= 0
-        masked_action_times = mask[..., None] * times[inds]
+        masked_action_times = mask * times[inds]
 
         state_actions = jax.vmap(
             lambda s, a: jnp.concatenate([s, a]),
