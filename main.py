@@ -74,7 +74,7 @@ checkpoint_dir = "checkpoints"
 
 checkpointer = ocp.PyTreeCheckpointer()
 
-learning_rate = float(2.5e-4)
+learning_rate = float(1.0e-5)
 every_k = 1
 
 env_cls = Finger
@@ -86,7 +86,7 @@ schedule = optax.cosine_onecycle_schedule(
     peak_value=learning_rate,
     pct_start=0.125,
     div_factor=5.0,
-    final_div_factor=5.0,
+    final_div_factor=1.0,
 )
 
 vibe_config = TrainConfig.init(
@@ -135,10 +135,10 @@ vibe_state = VibeState.init(rng, vibe_config)
 
 checkpoint_dir = "checkpoints"
 
-rel_path = os.path.join(checkpoint_dir, "checkpoint_r60_s512.0")
-abs_path = os.path.abspath(rel_path)
+# rel_path = os.path.join(checkpoint_dir, "checkpoint_r60_s512.0")
+# abs_path = os.path.abspath(rel_path)
 
-vibe_state = checkpointer.restore(abs_path, item=vibe_state)
+# vibe_state = checkpointer.restore(abs_path, item=vibe_state)
 
 # clear checkpoints
 if os.path.exists(checkpoint_dir):
