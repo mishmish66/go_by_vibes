@@ -65,7 +65,7 @@ from contextlib import redirect_stdout
 
 import wandb
 
-seed = 1
+seed = 0
 
 # Generate random key
 key = jax.random.PRNGKey(seed)
@@ -102,7 +102,7 @@ vibe_config = TrainConfig.init(
     state_encoder=StateEncoder(),
     action_encoder=ActionEncoder(),
     state_sizer=StateSizer(),
-    transition_model=TransitionModel(1e4, 3, 64, 4),
+    transition_model=TransitionModel(3, 64, 4),
     state_decoder=StateDecoder(env_config.state_dim),
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
