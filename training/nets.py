@@ -241,13 +241,12 @@ def make_inds(mask_len, first_known_i):
 
 
 class TransitionModel(nn.Module):
-    encoder_n: float
     n_layers: int
     latent_dim: int
     heads: int
 
     def setup(self):
-        self.temporal_encoder = TemporalEncoder(n=self.encoder_n)
+        self.temporal_encoder = TemporalEncoder()
 
         self.state_action_expander = nn.Dense(self.latent_dim, name="ACTION_EXPANDER")
 
