@@ -107,7 +107,7 @@ vibe_config = TrainConfig.init(
     action_decoder=ActionDecoder(env_config.act_dim),
     env_config=env_config,
     seed=seed,
-    rollouts=1024,
+    rollouts=4096,
     epochs=128,
     batch_size=64,
     every_k=every_k,
@@ -168,17 +168,10 @@ def do_rollout(carry_pack, _):
 
     steps = vibe_config.epochs * vibe_config.traj_per_rollout / vibe_config.batch_size
 
-    def checkpoint_for_id_tap(tap_pack, _):
-        vibe_state, rollout_i, steps = tap_pack
-        checkpoint_path = os.path.abspath(
-            os.path.join(checkpoint_dir, f"checkpoint_r{rollout_i}_s{steps}")
-        )
-        checkpointer.save(checkpoint_path, vibe_state)
-
-    jax.experimental.host_callback.id_tap(
-        checkpoint_for_id_tap,
-        (vibe_state, rollout_i, steps),
+    checkpoint_path = os.path.abspath(
+        os.path.join(checkpoint_dir, f"checkpoint_r{rollout_i}_s{steps}")
     )
+    checkpointer.save(checkpoint_path, vibe_state)
 
     def collect_finder_rollout(key):
         # Find a random vector a bit outside the space to go for
@@ -291,59 +284,11 @@ def do_rollout(carry_pack, _):
             vibe_state,
         )
 
-        (
-            _,
-            _,
-            vibe_state,
-        ), (
-            msg,
-            loss_infos,
-        ) = jax.lax.scan(process_batch, init, rollout_results_batched)
-
-        return (key, epoch + 1, vibe_state), loss_infos
-
-    actor_eval_stride = min(1024, vibe_config.epochs)
-
-    def do_epoch_set(carry_pack, _):
-        (
-            key,
-            epoch,
-            vibe_state,
-        ) = carry_pack
-
-        if rollout_i % 4 == 0:
-            # Eval the actor every n epochs
-            print("Evaluating actor")
-            rng, key = jax.random.split(key)
-            rngs = jax.random.split(rng, 32)
-
-            eval_actor_partial = jax.tree_util.Partial(
-                evaluate_actor,
-                start_state=start_state,
-                env_cls=env_cls,
-                vibe_state=vibe_state,
-                vibe_config=vibe_config,
-                target_q=1.0,
-                big_steps=2048,
-                small_steps=2048,
-                big_post_steps=32,
-                small_post_steps=32,
-            )
-
-            (eval_states, _), infos, _, _ = jax.vmap(eval_actor_partial)(rngs)
-
-            env_cls.host_send_wandb_video("Actor Video", eval_states[0], env_config)
-
-            infos.dump_to_wandb()
-            infos.dump_to_console()
-
-        rng, key = jax.random.split(key)
-        init = (rng, epoch, vibe_state)
-        (_, epoch, vibe_state), infos = jax.lax.scan(
-            do_epoch, init, None, length=actor_eval_stride
+        (_, _, vibe_state), (msg, loss_infos) = jax.lax.scan(
+            process_batch, init, rollout_results_batched
         )
 
-        return (key, epoch, vibe_state), infos
+        return (key, epoch + 1, vibe_state), loss_infos
 
     rng, key = jax.random.split(key)
     init = (rng, 0, vibe_state)
@@ -352,19 +297,36 @@ def do_rollout(carry_pack, _):
         lambda rollout, _: print(f"Rollout {rollout}"), rollout_i
     )
 
-    # Switching to a for loop to try and speed up compilation
-    carry = init
-    epoch_sets = max((vibe_config.epochs // actor_eval_stride), 1)
-    for i in range(epoch_sets):
-        carry, _ = do_epoch_set(carry, None)
+    # Eval actor if we feel like it
+    if rollout_i % 4 == 0:
+        # Eval the actor every n epochs
+        print("Evaluating actor")
+        rng, key = jax.random.split(key)
+        rngs = jax.random.split(rng, 32)
 
-    (_, _, vibe_state) = carry
+        eval_actor_partial = jax.tree_util.Partial(
+            evaluate_actor,
+            start_state=start_state,
+            env_cls=env_cls,
+            vibe_state=vibe_state,
+            vibe_config=vibe_config,
+            target_q=1.0,
+            big_steps=2048,
+            small_steps=2048,
+            big_post_steps=32,
+            small_post_steps=32,
+        )
 
-    # (_, _, vibe_state), infos = jax.lax.scan(
-    #     do_epoch_set, init, None, length=(vibe_config.epochs // actor_eval_stride)
-    # )
+        (eval_states, _), infos, _, _ = jax.vmap(eval_actor_partial)(rngs)
 
-    # jax.experimental.host_callback.id_tap(dump_infos_for_tap, (infos, rollout_i))
+        env_cls.host_send_wandb_video("Actor Video", eval_states[0], env_config)
+
+        infos.dump_to_wandb()
+        infos.dump_to_console()
+
+    (_, _, vibe_state), infos = jax.lax.scan(
+        do_epoch, init, None, length=vibe_config.epochs
+    )
 
     return (key, rollout_i + 1, vibe_state), _
 
@@ -376,10 +338,6 @@ init = (rng, jnp.array(0), vibe_state)
 carry = init
 for i in range(vibe_config.rollouts):
     carry, _ = do_rollout(carry, None)
-
-# (_, _, vibe_state), _ = jax.lax.scan(
-#     do_rollout, init, None, length=vibe_config.rollouts
-# )
 
 
 jax.debug.print("Done!")
