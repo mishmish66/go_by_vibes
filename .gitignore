@@ -17,3 +17,4 @@ xla_log/*
 MUJOCO_LOG.TXT
 checkpoints/*
 test.png
+scratchpad.ipynb
