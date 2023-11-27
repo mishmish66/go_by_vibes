@@ -182,16 +182,24 @@ class TemporalEncoder(nn.Module):
     def __call__(self, x, time) -> Any:
         d = x.shape[-1]
         indices = jnp.arange(d)
-        denominators = jnp.power(self.n, indices / d)
-        operands = x / denominators
-        sins = jnp.sin(operands[0::2])
-        cosines = jnp.cos(operands[1::2])
 
-        # interleave
-        freq_result = jnp.empty_like(operands)
-        freq_result = freq_result.at[0::2].set(sins)
-        freq_result = freq_result.at[1::2].set(cosines)
+        # Compute frequencies
+        max_freq = 1 / 10.0  # 10 second period
+        min_freq = 1 / 0.05  # 0.05 second period
+        freqs = jnp.logspace(jnp.log10(min_freq), jnp.log10(max_freq), num=d // 2)
 
+        # Get phases
+        phases = time * freqs
+
+        # Compute sines and cosines of phases
+        sines = jnp.sin(phases[0::2])
+        cosines = jnp.cos(phases[1::2])
+
+        # Give it the dims it needs
+        freq_result = jnp.concatenate([sines, cosines])
+        freq_result = jnp.zeros_like(x).at[0 : freq_result.shape[0]].set(freq_result)
+
+        # Combine with input and return
         return x + freq_result
 
 
@@ -262,22 +270,19 @@ class TransitionModel(nn.Module):
         current_action_i,
     ) -> Any:
         inds = make_inds(latent_actions.shape[0], current_action_i)
-        mask_time_inds = jnp.maximum(inds, 0)
-
-        # Apply temporal encodings
-        latent_actions_temp = jax.vmap(self.temporal_encoder, (0, 0))(
-            latent_actions, times[mask_time_inds]
-        )
+        mask = inds >= 0
+        masked_action_times = mask[..., None] * times[inds]
 
         state_actions = jax.vmap(
             lambda s, a: jnp.concatenate([s, a]),
             (None, 0),
-        )(initial_latent_state, latent_actions_temp)
+        )(initial_latent_state, latent_actions)
 
         # Upscale actions and state to latent dim
         x = jax.vmap(self.state_action_expander.__call__)(state_actions)
 
-        mask = inds >= 0
+        # Apply temporal encodings
+        x = jax.vmap(self.temporal_encoder)(x, masked_action_times)
 
         # Apply transformer layers
         for t_layer in self.t_layers:
